@@ -9,7 +9,7 @@ from sklearn.cluster import KMeans
 
 NULL = "NULL"
 DEBUG = False
-EPS = 1e-30
+EPS = 1e-100
 random.seed(1)
 np.random.seed(1)
 
@@ -227,8 +227,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
         aSen, vSen = self.aCorpus[ex], self.vCorpus[ex] 
         alphas = self.forward(vSen, aSen) # Forward filtering,  
         if epoch > 0: 
-          for t, (begin, end) in enumerate(zip(self.segmentations[ex][:-1], self.segmentations[ex][1:])): # Remove the old tables
-            
+          for t, (begin, end) in enumerate(zip(self.segmentations[ex][:-1], self.segmentations[ex][1:])): # Remove the old tables            
             segment = ' '.join(aSen[begin:end]) 
             for k in range(self.nWords):
               # print('k, segment, counts, tables: ', k, segment, self.restaurantCounts[ex][t, k], self.restaurants[k].tables[k])
@@ -236,7 +235,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
                 # print('Warning: Count too small')
                 continue 
               self.restaurants[k].unseat_from(segment, self.restaurantCounts[ex][t, k])
-
+        
         segments, boundaries = self.backwardSample(vSen, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
         self.segmentations[ex] = deepcopy(boundaries)
         forwardProbs = self.forward(vSen, aSen, boundaries, debug=False)
@@ -258,8 +257,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
       for m in self.lenProb:
         totCounts = np.sum(np.maximum(transCounts[m], EPS), axis=1)
         for s in range(m):
-          if totCounts[s] == 0:
-            # Not updating the transition arc if it is not used          
+          if totCounts[s] == 0: # Not updating the transition arc if it is not used          
             self.trans[m][s] = self.trans[m][s]
           else:
             self.trans[m][s] = np.maximum(transCounts[m][s], EPS) / totCounts[s]
@@ -509,12 +507,9 @@ class ImagePhoneGaussianCRPWordDiscoverer:
   # -------
   #   newRestaurantCounts: Tx x K maxtrix storing p(z_{i_t}|x, y) 
   def updateRestaurantCounts(self, forwardProbs, backwardProbs):
-    #assert np.sum(forwardProbs, axis=1).all() and np.sum(backwardProbs, axis=1).all()
-    T = forwardProbs.shape[0]
-    nState = forwardProbs.shape[1]
     normFactor = np.maximum(np.sum(np.sum(forwardProbs * backwardProbs, axis=-1), axis=-1), EPS)
-    newStateCounts = np.transpose(np.transpose(forwardProbs * backwardProbs, (1, 2, 0)) / normFactor, (2, 0, 1)) 
-   
+    newStateCounts = forwardProbs * backwardProbs / normFactor[:, np.newaxis, np.newaxis] 
+    # print('newStateCounts: ', np.sum(newStateCounts, axis=(1, 2)))
     return np.sum(newStateCounts, axis=1)
 
   # Inputs:
