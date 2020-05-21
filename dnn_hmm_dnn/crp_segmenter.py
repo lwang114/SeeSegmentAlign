@@ -163,13 +163,15 @@ class CRPWordSegmenter:
         else:
           p_init = None
 
+        prob = self.restaurant.prob(segment, p_init)
+        # print('segment prob: ', segment, prob)
         if s == 0:
-          w = self.restaurant.prob(segment, p_init)
+          w = prob
         else:
-          w = alphas[s-1] + self.restaurant.prob(segment, p_init)
+          w = alphas[s-1] * prob
         norm += w
         ws.append(w)
-      
+            
       x = norm * random.random()
       for i, w in enumerate(ws):
         if x < w:
@@ -182,8 +184,7 @@ class CRPWordSegmenter:
  
     return boundaries, segments
 
-  # TODO
-  def gibbsSampling(self, nIteration=100, outputDir='./'):
+  def gibbsSampling(self, nIteration=20, outputDir='./'):
     order = list(range(len(self.corpus))) 
     for epoch in range(nIteration):
       random.shuffle(order)
