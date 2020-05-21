@@ -2,6 +2,8 @@ import math
 import random
 from copy import deepcopy
 import json
+import os
+random.seed(2)
 # Part of the code modified from vpyp: https://github.com/vchahun/vpyp/blob/master/vpyp/pyp.py
 
 class Restaurant:
@@ -30,10 +32,10 @@ class Restaurant:
     self.ncustomers += 1 
     tables = self.tables # shallow copy the tables to a local variable
     if not k in self.name2table: # add a new table
-      self.ntables += 1
       tables.append(1)
       self.name2table[k] = self.ntables
       self.table_names.append(k)
+      self.ntables += 1
     else:
       i = self.name2table[k]
       tables[i] += 1
@@ -68,16 +70,17 @@ class Restaurant:
 
   def log_likelihood(self):
     ll = math.lgamma(self.alpha0) - math.lgamma(self.alpha0 + self.ncustomers)
-    ll += sum(math.lgamma(self.tables[i] + self.alpha0 * self.p_init[tn]) for i, tn in enumerate(self.table_names))
-    ll += sum(math.p_init[tn] - math.lgamma(self.alpha0 * self.p_init[tn]) for tn in self.table_names)
+    ll += sum(math.lgamma(self.tables[i] + self.alpha0 * self.p_init[k]) for i, k in enumerate(self.table_names))
+    ll += sum(self.p_init[k] - math.lgamma(self.alpha0 * self.p_init[k]) for k in self.table_names)
     return ll
 
   def save(self, outputDir='./'):
     with open(outputDir + 'tables.txt', 'w') as f:
-      for k, c in zip(self.table_names, self.tables):
-        f.write('%s %d\n' % (k, c))
+      sorted_indices = sorted(list(range(self.ntables)), key=lambda x:self.tables[x], reverse=True)
+      for i in sorted_indices:
+        f.write('%s %d\n' % (self.table_names[i], self.tables[i]))
 
-class CRPWordSegmenter(self):
+class CRPWordSegmenter:
   # Attributes:
   # ----------
   #   restaurant: a Restaurant object storing the table information for the candidate words
@@ -85,9 +88,9 @@ class CRPWordSegmenter(self):
   #   phonePrior: a dictionary {k: p(phn=k)}
   #   segmentations: a list containing time boundaries for each sentence, 
   #                 [[1, s_1^1, ..., T], [1, s_1^2, ..., T], ..., [1, s_1^D, ..., T]] 
-  def __init__(self, corpusFile, alpha):
+  def __init__(self, corpusFile, alpha0):
     self.readCorpus(corpusFile)
-    self.restaurant = Restaurant(alpha)  
+    self.restaurant = Restaurant(alpha0)  
     self.segmentations = [[] for _ in self.corpus]
 
   def readCorpus(self, corpusFile):
@@ -100,14 +103,14 @@ class CRPWordSegmenter(self):
       sen = line.strip().split()
       self.corpus.append(sen)
       for phn in sen:
-        if phn not in sen:
+        if phn not in self.phonePrior:
           self.phonePrior[phn] = 1
         else:
           self.phonePrior[phn] += 1
         totalPhones += 1
 
-    for phn in self.phonePriors[phn]:
-      self.phonePriors[phn] /= totalPhones
+    for phn in self.phonePrior:
+      self.phonePrior[phn] /= totalPhones
       
     print('Total number of phones: ', totalPhones) 
 
@@ -121,17 +124,16 @@ class CRPWordSegmenter(self):
     alphas = [0] * len(sent)
     for t in range(1, len(sent)+1):
       for s in range(t):
-        segment = sent[s:t]
-        
+        segment = ' '.join(sent[s:t])
         if not segment in self.restaurant.p_init: # Check if p_init for the segment is cached by the restaurant
           p_init = self.p_init(segment)
         else:
           p_init = None
 
         if s == 0:
-          alphas[t] += self.restaurant.prob(segment, p_init)
+          alphas[t-1] += self.restaurant.prob(segment, p_init)
         else:
-          alphas[t] += alphas[s-1] * self.restaurant.prob(segment, p_init)
+          alphas[t-1] += alphas[s-1] * self.restaurant.prob(segment, p_init)
     return alphas
 
   # Inputs:
@@ -145,16 +147,17 @@ class CRPWordSegmenter(self):
   def backwardSample(self, sent, alphas):
     T = len(sent)
     segments = []
-    boundaries = []
+    boundaries = [T]
     t = T
     while t != 0:
       ws = []
       norm = 0
       candidates = []
+      lengths = []
       for s in range(t):  
-        segment = sent[s:t]
+        segment = ' '.join(sent[s:t])
         candidates.append(segment)
-        
+        lengths.append(t - s)
         if not segment in self.restaurant.p_init: # Check if p_init for the segment is cached by the restaurant
           p_init = self.p_init(segment)
         else:
@@ -163,7 +166,7 @@ class CRPWordSegmenter(self):
         if s == 0:
           w = self.restaurant.prob(segment, p_init)
         else:
-          w = alphas[s-1] + self.restaurant.prob(segment, p_init) 
+          w = alphas[s-1] + self.restaurant.prob(segment, p_init)
         norm += w
         ws.append(w)
       
@@ -172,22 +175,23 @@ class CRPWordSegmenter(self):
         if x < w:
           break
         x -= w
-
-      segments = candidates[i] + segments
-      boundaries.append(t - len(segments))
-      t = t - len(segments)
+       
+      segments = [candidates[i]] + segments
+      boundaries = [t - lengths[i]] + boundaries
+      t = t - lengths[i]
+ 
     return boundaries, segments
 
   # TODO
   def gibbsSampling(self, nIteration=100, outputDir='./'):
     order = list(range(len(self.corpus))) 
     for epoch in range(nIteration):
-      random.randperm(order)
+      random.shuffle(order)
       for i in order:
         sent = self.corpus[i] 
         if epoch > 0:
           for begin, end in zip(self.segmentations[i][:-1], self.segmentations[i][1:]):
-            segment = sent[begin:end]
+            segment = ' '.join(sent[begin:end])
             self.restaurant.unseat_from(segment)
   
         alphas = self.forwardProbs(sent)
@@ -203,7 +207,7 @@ class CRPWordSegmenter(self):
 
   def p_init(self, segment):
     prob = 0
-    for i, phn in enumerate(segment):
+    for i, phn in enumerate(segment.split()):
       if i == 0:
         prob = self.phonePrior[phn]
       else:
@@ -211,25 +215,20 @@ class CRPWordSegmenter(self):
     return prob
 
   def save(self, outputDir='./'):
-    segmentInfo = []
-    for ex, seg in enumerate(self.segmentations):
-      segmentInfo.append({
-        'index': ex,
-        'segmentation': seg,
-        'sentence': self.corpus[ex]
-        })
-
-    with open(outputDir + 'segmentation.json', 'w') as f:
-      json.dump(segmentInfo, f, indent=4, sort_keys=True)
+    f = open(outputDir + 'segmented_sentences.txt', 'w')
+    for ex, (sent, seg) in enumerate(zip(self.corpus, self.segmentations)):
+      seg_sent = ''
+      for begin, end in zip(seg[:-1], seg[1:]):
+        seg_sent += ''.join(sent[begin:end]) + ' '
+      f.write(seg_sent + '\n')
 
     self.restaurant.save(outputDir)
-    
-          
+             
 if __name__ == '__main__':
-  corpusFile = '../data/mscoco_phone_captions.txt'
+  corpusFile = '../data/mscoco2k_phone_captions.txt'
   outputDir = 'exp/may20_mscoco/'
-  if not os.isdir(outputDir):
+  if not os.path.isdir(outputDir):
     print('Create directory: ', outputDir)
     os.mkdir(outputDir) 
-  segmenter = CRPSegmenter(corpusFile)
+  segmenter = CRPWordSegmenter(corpusFile, alpha0=1.)
   segmenter.gibbsSampling(outputDir=outputDir)
