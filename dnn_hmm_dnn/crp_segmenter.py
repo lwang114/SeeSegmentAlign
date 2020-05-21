@@ -220,7 +220,7 @@ class CRPWordSegmenter:
     for ex, (sent, seg) in enumerate(zip(self.corpus, self.segmentations)):
       seg_sent = ''
       for begin, end in zip(seg[:-1], seg[1:]):
-        seg_sent += ''.join(sent[begin:end]) + ' '
+        seg_sent += ','.join(sent[begin:end]) + ' '
       f.write(seg_sent + '\n')
 
     self.restaurant.save(outputDir)
@@ -232,4 +232,4 @@ if __name__ == '__main__':
     print('Create directory: ', outputDir)
     os.mkdir(outputDir) 
   segmenter = CRPWordSegmenter(corpusFile, alpha0=1.)
-  segmenter.gibbsSampling(outputDir=outputDir)
+  segmenter.gibbsSampling(nIteration=100, outputDir=outputDir)
