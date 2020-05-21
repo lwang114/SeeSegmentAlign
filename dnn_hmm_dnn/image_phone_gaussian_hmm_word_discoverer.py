@@ -15,7 +15,7 @@ np.random.seed(1)
 
 # A word discovery model using image regions and phones
 # * The transition matrix is assumed to be Toeplitz 
-class ImagePhoneGaussianSegmentalWordDiscoverer:
+class ImagePhoneGaussianHMMWordDiscoverer:
   def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, modelName='image_phone_hmm_word_discoverer'):
     self.modelName = modelName 
     # Initialize data structures for storing training data
@@ -28,36 +28,32 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     self.momentum = modelConfigs.get('momentum', 0.)
     self.lr = modelConfigs.get('learning_rate', 10.)
     self.isExact = modelConfigs.get('is_exact', False)
-    self.maxPhones = modelConfigs.get('max_phones', 4) # Maximum number of phones in a segment 
-    self.alpha0 = modelConfigs.get('alpha_0', 0.1) # Concentration parameter for the Dirichlet prior
+    self.normalize_vfeat = modelConfigs.get('normalize_vfeat', False) 
     self.init = {}
     self.trans = {}                 # trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
     self.lenProb = {}
-    self.obs = [{} for k in range(self.nWords)]                 # obs[k][s] is initialized with of how often a concept k and a phone string s appear together.
-    self.phonePrior = {}
-    self.wordCounts = [{} for k in range(self.nWords)]
-    self.segmentations = []
+    self.obs = None                 # obs[e_i][f_j] is initialized with a count of how often target word e_i and foreign word f_j appeared together.
     self.avgLogTransProb = float('-inf')
      
     # Read the corpus
-    self.readCorpus(speechFeatureFile, imageFeatureFile, debug=False)
-
-    # self.initProbFile = modelConfigs.get('init_prob_file', None)
-    # self.transProbFile = modelConfigs.get('trans_prob_file', None)
-    # self.obsProbFile = modelConfigs.get('obs_prob_file', None)
-    # self.visualAnchorFile = modelConfigs.get('visual_anchor_file', None)
-      
+    self.readCorpus(speechFeatureFile, imageFeatureFile, debug=False);
+    self.initProbFile = modelConfigs.get('init_prob_file', None)
+    self.transProbFile = modelConfigs.get('trans_prob_file', None)
+    self.obsProbFile = modelConfigs.get('obs_prob_file', None)
+    self.visualAnchorFile = modelConfigs.get('visual_anchor_file', None)
+     
+     
   def readCorpus(self, speechFeatFile, imageFeatFile, debug=False):
     aCorpus = []
     vCorpus = []
-    nPhoneTypes = 0
-    nSegmentTypes = 0
+    self.phone2idx = {}
+    nTypes = 0
     nPhones = 0
     nImages = 0
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]    
     
     if self.hasNull:
       # Add a NULL concept vector
@@ -67,6 +63,8 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     for ex, vfeat in enumerate(self.vCorpus):
       nImages += len(vfeat)
       if vfeat.shape[-1] == 0:
+        print('ex: ', ex)
+        print('vfeat empty: ', vfeat.shape) 
         self.vCorpus[ex] = np.zeros((1, self.imageFeatDim))
  
     if debug:
@@ -74,37 +72,35 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
 
     f = open(speechFeatFile, 'r')
     aCorpusStr = []
-    self.phonePrior = np.zeros((nPhoneTypes,))
-    # XXX
     for line in f:
       aSen = line.strip().split()
-      self.aCorpus.append(aSen)
+      if len(aSen) == 0:
+        print('Empty caption')
+        aSen = [NULL]
+      aCorpusStr.append(aSen)
       for phn in aSen:
-        if phn not in self.phone2idx:
-          self.phonePrior[phn] += 1
-          nPhoneTypes += 1
+        if phn.lower() not in self.phone2idx:
+          self.phone2idx[phn.lower()] = nTypes
+          nTypes += 1
         nPhones += 1
     f.close()
-    self.phonePrior /= np.sum(self.phonePrior)   
-    
-    for aSen in self.aCorpus[:30]:
-      T = len(aSen)
-      for begin in range(T):
-        for end in range(begin + 1, min(T + 1, begin + 1 + args.maxPhones)):
-          phnSeq = aSen[begin:end] 
-          for k in range(self.nWords):
-            if phnSeq not in self.wordCounts[k]:
-              self.wordCounts[k][phnSeq] = self.alpha0 * np.prod([self.phonePrior[phn] for phn in phnSeq])
-          nSegmentTypes += 1  
+    self.audioFeatDim = nTypes
 
+    # XXX
+    for aSenStr in aCorpusStr:
+      T = len(aSenStr)
+      aSen = np.zeros((T, self.audioFeatDim))
+      for t, phn in enumerate(aSenStr):
+        aSen[t, self.phone2idx[phn.lower()]] = 1.
+      self.aCorpus.append(aSen)
+           
     print('----- Corpus Summary -----')
     print('Number of examples: ', len(self.aCorpus))
-    print('Number of phonetic categories: ', nPhoneTypes)
-    print('Number of segment categories: ', nSegmentTypes)
+    print('Number of phonetic categories: ', nTypes)
     print('Number of phones: ', nPhones)
     print('Number of objects: ', nImages)
     print("Number of word clusters: ", self.nWords)
-  
+    
   def initializeModel(self, alignments=None):
     begin_time = time.time()
     self.computeTranslationLengthProbabilities()
@@ -116,6 +112,7 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     for m in self.lenProb:
       self.trans[m] = 1. / m * np.ones((m, m))   
   
+    #print('Num. of concepts: ', self.nWords)
     if self.initProbFile:
       f = open(self.initProbFile)
       for line in f:
@@ -137,10 +134,7 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     if self.obsProbFile:
       self.obs = np.load(self.obsProbFile)
     else:
-      for k in range(self.nWords):
-        normFactor = np.sum(self.wordCounts[k].values())
-        for s in self.obs[k]:
-          self.obs[k][s] = self.wordCounts[k][s] / normFactor
+      self.obs = 1. / self.audioFeatDim * np.ones((self.nWords, self.audioFeatDim))
 
     # XXX    
     if self.visualAnchorFile:
@@ -153,6 +147,54 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     self.printUnimodalCluster(filePrefix=self.modelName)
   
   # TODO
+  # Inputs:
+  # ------
+  #   T0: positive value, initial temperature
+  #       numIterations: number of SA iterations
+  #   stepSize: scale of the random jump step
+  #
+  # Outputs:
+  # -------
+  #   None
+  def simulatedAnnealing(self, numIterations=100, T0=0.5, stepScale=5., debug=False):
+    # Initial negative log-likelihood as the initial energy 
+    self.trainUsingEM(numIterations=5, warmStart=False, printStatus=True)
+    E0 = -self.computeAvgLogLikelihood() 
+    Emin = E0 
+    count = 0
+    for epoch in range(numIterations):
+      print('Simulated Annealing Iteration %d' % epoch)
+      begin_time = time.time()
+      init_prev = deepcopy(self.init)
+      trans_prev = deepcopy(self.trans)
+      obs_prev = deepcopy(self.obs) 
+      mus_prev = deepcopy(self.mus)
+      self.mus += stepScale * np.random.normal(size=(self.nWords, self.imageFeatDim))
+      self.trainUsingEM(numIterations=5, warmStart=True, printStatus=False)
+      E1 = -self.computeAvgLogLikelihood() 
+      print('Current and previous energy level: ', E1, E0)
+      # Cooling scheme
+      Tk = T0 / np.log(epoch+2)
+      # Random jump according to the Boltzman distribution with dE = E1 - E0
+      # 1) Continue jumping if not finding a good local minimum and choosing not to stay at the bad local optimum 
+      if E1 > E0 and random.random() > np.exp(-(E1 - E0) / Tk): 
+        self.mus = mus_prev
+        self.init = init_prev
+        self.trans = trans_prev
+        self.obs = obs_prev
+      # 2) Otherwise, transition to the new energy level; save the weight if it is the lowest energy level so far 
+      else:
+        if debug:
+          print('Random jump at temperature %.5f' % Tk)
+        E0 = E1
+        if E1 < Emin:
+          Emin = E1
+          count += 1
+          print('Update %d after %.2f s: current lowest energy level is %.5f' % (count, time.time()-begin_time, Emin))
+          self.printModel(self.modelName+'_%d' % count)
+          self.printAlignment(self.modelName+'_%d_alignment' % count, debug=False)
+          begin_time = time.time()
+
   def trainUsingEM(self, numIterations=20, writeModel=False, warmStart=False, convergenceEpsilon=0.01, printStatus=True, debug=False):
     if not warmStart:
       self.initializeModel()
@@ -169,6 +211,7 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
       phoneCounts = np.zeros((self.nWords, self.audioFeatDim))      
       conceptCounts = [np.zeros((vSen.shape[0], self.nWords)) for vSen in self.vCorpus]
       self.conceptCounts = conceptCounts
+      self.conceptCountsA = [np.zeros((aSen.shape[0], self.nWords)) for aSen in self.aCorpus]
 
       if printStatus:
         likelihood = self.computeAvgLogLikelihood()
@@ -179,24 +222,22 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
           self.printAlignment(self.modelName+'_iter='+str(epoch)+'_alignment', debug=False)                
           maxLikelihood = likelihood
       
-      # E Step
       for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
-        # Sample segmentations
-        self.segment(vSen, aSen)
-
         forwardProbs = self.forward(vSen, aSen, debug=False)
         backwardProbs = self.backward(vSen, aSen, debug=False) 
-
+        if debug:
+          print('forward prob: ', forwardProbs)
+          print('backward prob: ', backwardProbs)
         initCounts[len(vSen)] += self.updateInitialCounts(forwardProbs, backwardProbs, vSen, aSen, debug=False)
         transCounts[len(vSen)] += self.updateTransitionCounts(forwardProbs, backwardProbs, vSen, aSen, debug=False)
         stateCounts = self.updateStateCounts(forwardProbs, backwardProbs)
         phoneCounts += np.sum(stateCounts, axis=1).T @ aSen
         
         conceptCounts[ex] += self.updateConceptCounts(vSen, aSen)
+        self.conceptCountsA[ex] += np.sum(stateCounts, axis=1)
       self.conceptCounts = conceptCounts
 
-      # M Step
-      # TODO
+      # Normalize
       for m in self.lenProb:
         self.init[m] = np.maximum(initCounts[m], EPS) / np.sum(np.maximum(initCounts[m], EPS)) 
 
@@ -211,7 +252,12 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
       
       normFactor = np.sum(np.maximum(phoneCounts, EPS), axis=-1) 
       self.obs = (phoneCounts.T / normFactor).T
-            
+      
+      if debug:
+        print('phoneCounts: ', phoneCounts)
+        print('self.obs: ', self.obs)
+      
+      # XXX
       self.updateSoftmaxWeight(conceptCounts, debug=False) 
 
       if (epoch + 1) % 10 == 0:
@@ -225,121 +271,101 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
   # Inputs:
   # ------
   #   vSen: Ty x Dy matrix storing the image feature (e.g., VGG 16 hidden activation)
-  #   aSen: A Tx x 1 list storing the original phone sequence 
-  # Outputs:
-  # -------
-  #   segmentation: (T + 1) x 1 list storing the time stamps of the word boundaries 
-  # TODO
-  def segment(self, vSen, aSen):
-    T = len(aSen)
-    nState = len(vSen)
-    # Compute the unsegmented forward probabilities
-    uforwardProbs = np.sum(self.forward(vSen, aSen), axis=-1)
-    
-    # Sample the segmentation backward
-    t = T - 1
-    while t != 0:
-      segmentProbs = []
-      ts = []
-      for s in range(t):
-        prob_x_t_given_z = np.asarray([self.obs[k][aSen[s+1:t+1]] for k in range(self.nWords)])
-        if t - s > self.maxPhones:
-          continue
-        probs_x_given_y = probs_z_given_y @ prob_x_t_given_z 
-        segmentProbs.append(uforwardProbs[s] @ self.trans[nState] @ probs_x_given_y)
-        ts.append(s)
-      # TODO Implement the draw function
-      idx = draw(segmentProbs) 
-      t = ts[idx]
-
-  # Inputs:
-  # ------
-  #   vSen: Ty x Dy matrix storing the image feature (e.g., VGG 16 hidden activation)
-  #   aSen: Tx x 1 list storing the segmented phone sequence (T = number of segments) 
-  #   segmentation: (T + 1) x 1 list storing the time stamps of the word boundaries; if not provided, assume
-  #                 the segmentation is unknown
+  #   aSen: Tx x Dx matrix storing the phone sequence (Dx = size of the phone set) 
+  #   (optional) restrictState: a tuple (i, k), where i is the alignment index and k is the image concept class  
   #
   # Outputs:
   # -------
-  #   forwardProbs: T x Ty x K matrix storing p(z_i, i_t, x_1:t|y)
-  def forward(self, vSen, aSen, segmentation=None, debug=False):
+  #   forwardProbs: Tx x Ty x K matrix storing p(z_i, i_t, x_1:t|y)
+  def forward(self, vSen, aSen, restrictState=None, debug=False):
+    T = len(aSen)
     nState = len(vSen)
+    forwardProbs = np.zeros((T, nState, self.nWords))   
+    #if debug:
+    #  print('self.lenProb.keys: ', self.lenProb.keys())
+    #  print('init keys: ', self.init.keys())
+    #  print('nState: ', nState)
+    
     probs_z_given_y = self.softmaxLayer(vSen) 
-    trans_diag = np.diag(np.diag(self.trans[nState]))
-    trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
-    if not segmentation:
-      T = len(aSen)
-      # TODO
-      forwardProbs = np.zeros((T, nState, self.nWords))
-      for t in range(T): 
-        for s in range(t):
-          if t - s > self.maxPhones:
-            continue 
-          prob_x_t_given_z = np.asarray([self.obs[k][aSen[s+1:t+1]] for k in range(self.nWords)])
-          prob_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z
-          # Compute the diagonal term
-          forwardProbs[t] += (trans_diag @ forwardProbs[s]) * prob_x_t_given_z
-          # Compute the off-diagonal term 
-          forwardProbs[t] += (((trans_off_diag.T @ np.sum(forwardProbs[s], axis=-1))) * probs_x_t_z_given_y.T).T 
-    else:
-      T = len(segmentation) - 1
-      forwardProbs = np.zeros((T, nState, self.nWords))       
-      prob_x_t_given_y = np.asarray([[self.obs[k][aSen[begin:end]] for begin, end in zip(segmentation[:-1], segmentation[1:])] for k in range(self.nWords)])
-      forwardProbs[0] = np.tile(self.init[nState][:, np.newaxis], (1, self.nWords)) * probs_z_given_y * prob_x_t_given_z[0]
-      for t in range(T-1):
-        probs_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z[t+1]
-        # Compute the diagonal term
-        forwardProbs[t+1] += (trans_diag @ forwardProbs[t]) * prob_x_t_given_z[t+1] 
-        # Compute the off-diagonal term 
-        forwardProbs[t+1] += ((trans_off_diag.T @ np.sum(forwardProbs[t], axis=-1)) * probs_x_t_z_given_y.T).T 
+    if restrictState is not None:
+      probs_z_given_y[restrictState[0]] = 0.
+      probs_z_given_y[restrictState[0], restrictState[1]] = 1.
+    
+    forwardProbs[0] = np.tile(self.init[nState][:, np.newaxis], (1, self.nWords)) * probs_z_given_y * (self.obs @ aSen[0])
+    for t in range(T-1):
+      prob_x_t_given_y = self.obs @ aSen[t+1]
+      probs_x_t_z_given_y = probs_z_given_y * prob_x_t_given_y
+      trans_diag = np.diag(np.diag(self.trans[nState]))
+      trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
+      # Compute the diagonal term
+      forwardProbs[t+1] += (trans_diag @ forwardProbs[t]) * prob_x_t_given_y 
+      # Compute the off-diagonal term 
+      if debug:
+        print('probs_x_t_given_y: ', probs_z_given_y * (self.obs @ aSen[t]))
+        print('probs_x_t_z_given_y: ', probs_x_t_z_given_y)
+        print('diag term: ', (trans_diag @ forwardProbs[t]) * prob_x_t_given_y)
+        print('off diag term: ', trans_off_diag.T @ np.sum(forwardProbs[t], axis=-1))
+
+      forwardProbs[t+1] += ((trans_off_diag.T @ np.sum(forwardProbs[t], axis=-1)) * probs_x_t_z_given_y.T).T 
        
     return forwardProbs
 
   # Inputs:
   # ------
   #   vSen: Ty x Dy matrix storing the image feature (e.g., VGG 16 hidden activation)
-  #   aSen: Tx x 1 list storing the segmented phone sequence (T = number of segments) 
-  #   segmentation: (T + 1) x 1 list storing the time stamps of the word boundaries; if not provided, assume the segmentation is unknown
-  #
+  #   aSen: Tx x Dx matrix storing the phone sequence
+  # 
   # Outputs:
   # -------
-  #   backwardProbs: Tx x Ty x K matrix storing p(z_i, i_t, x_1:t|y)
-  def backward(self, vSen, aSen, segmentation, debug=False):
-    T = len(segmentation) - 1
+  #   backwardProbs: Tx x Ty x K matrix storing p(z_i, i_t, x_1:t|y) 
+  def backward(self, vSen, aSen, debug=False):
+    T = len(aSen)
     nState = len(vSen)
     backwardProbs = np.zeros((T, nState, self.nWords))
     probs_z_given_y = self.softmaxLayer(vSen)
-    prob_x_t_given_z = np.asarray([[self.obs[k][aSen[begin:end]] for begin, end in zip(segmentation[:-1], segmentation[1:])] for k in range(self.nWords)])
 
-    trans_diag = np.diag(np.diag(self.trans[nState]))
-    trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
-    
     backwardProbs[T-1] = 1.
     for t in range(T-1, 0, -1):
-      prob_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z[t]
-      backwardProbs[t-1] += trans_diag @ (backwardProbs[t] * prob_x_t_z_given_y)
+      prob_x_t_z_given_y = probs_z_given_y * (self.obs @ aSen[t]) 
+      backwardProbs[t-1] += np.diag(np.diag(self.trans[nState])) @ (backwardProbs[t] * (self.obs @ aSen[t])) 
+      if debug:
+        print('backwardProbs[t-1]: ', backwardProbs[t-1])
+ 
+      trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
       backwardProbs[t-1] += np.tile(trans_off_diag @ np.sum(backwardProbs[t] * prob_x_t_z_given_y, axis=-1)[:, np.newaxis], (1, self.nWords))
-    
+      if debug:
+        print('diag term: ', np.diag(np.diag(self.trans[nState])) @ (backwardProbs[t] * (self.obs @ aSen[t])))
+        print('beta term for off-diag: ', trans_off_diag @ np.sum(backwardProbs[t] * prob_x_t_z_given_y, axis=-1)) 
+        print('backwardProbs[t-1]: ', backwardProbs[t-1])
+        print('off-diag term: ', trans_off_diag @ np.sum(backwardProbs[t] * prob_x_t_z_given_y, axis=-1))
+ 
     return backwardProbs  
 
   # Inputs:
   # ------
   #   forwardProbs: Tx x Ty x K matrix storing p(z_i, i_t, x_1:t|y)
   #   backwardProbs: Tx x Ty x K matrix storing p(x_t+1:Tx|z_i, i_t, y)   
+  #   vSen: Ty x Dy matrix storing the image feature (e.g., VGG 16 hidden activation)
+  #   aSen: Tx x Dx matrix storing the phone sequence
   #
   # Outputs:
   # -------
-  #   initExpCounts: Tx x Ty maxtrix storing p(i_{t-1}, i_t|x, y)
-  def updateInitialCounts(self, forwardProbs, backwardProbs, debug=False):
+  #   initExpCounts: Tx x Ty maxtrix storing p(i_{t-1}, i_t|x, y) 
+  def updateInitialCounts(self, forwardProbs, backwardProbs, vSen, aSen, debug=False):
     #assert np.sum(forwardProbs, axis=1).all() and np.sum(backwardProbs, axis=1).all() 
-    T = forwardProbs.shape[0]
-    nState = forwardProbs.shape[1]
-
+    nState = len(vSen)
+    T = len(aSen)
     # Update the initial prob  
     initExpCounts = np.zeros((nState,))  
     for t in range(T):
+      # XXX
       initExpCounts += np.sum(np.maximum(forwardProbs[t] * backwardProbs[t], EPS), axis=-1) / np.sum(np.maximum(forwardProbs[t] * backwardProbs[t], EPS))
-
+      if debug:
+        #print('forwardProbs, backwardProbs: ', forwardProbs[t], backwardProbs[t])    
+        print('np.sum(forward*backward): ', np.sum(forwardProbs[t] * backwardProbs[t])) 
+    if debug:
+      print('initExpCounts: ', initExpCounts)
+ 
     return initExpCounts
 
   # Inputs:
@@ -352,25 +378,31 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
   # Outputs:
   # -------
   #   transExpCounts: Tx x Ty maxtrix storing p(i_{t-1}, i_t|x, y)
-  def updateTransitionCounts(self, forwardProbs, backwardProbs, vSen, aSen, segmentation, debug=False):
+  def updateTransitionCounts(self, forwardProbs, backwardProbs, vSen, aSen, debug=False):
     nState = len(vSen)
-    T = len(segmentation) - 1 
+    T = len(aSen) 
     transExpCounts = np.zeros((nState, nState))
 
     # Update the transition probs
     probs_z_given_y = self.softmaxLayer(vSen)
-    prob_x_t_given_z = np.asarray([[self.obs[k][aSen[begin:end]] for begin, end in zip(segmentation[:-1], segmentation[1:])] for k in range(self.nWords)])
-
     for t in range(T-1):
-      prob_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z[t+1]
+      prob_x_t_z_given_y = probs_z_given_y * (self.obs @ aSen[t+1]) 
+      prob_x_t_given_z = (self.obs @ aSen[t+1])
       alpha = np.tile(np.sum(forwardProbs[t], axis=-1)[:, np.newaxis], (1, nState)) 
       trans_diag = np.tile(np.diag(self.trans[nState])[:, np.newaxis], (1, self.nWords))
       trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
       transExpCount = np.zeros((nState, nState)) 
-      transExpCount += np.diag(np.sum(forwardProbs[t] * trans_diag * prob_x_t_given_z[t+1] * backwardProbs[t+1], axis=-1))
+      transExpCount += np.diag(np.sum(forwardProbs[t] * trans_diag * prob_x_t_given_z * backwardProbs[t+1], axis=-1))
       transExpCount += alpha * trans_off_diag * np.sum(prob_x_t_z_given_y * backwardProbs[t+1], axis=-1)
+      
+      if debug:
+        print('diag count: ', np.diag(np.sum(forwardProbs[t] * trans_diag * prob_x_t_given_z * backwardProbs[t+1], axis=-1)))
+        print('diag count: ', alpha * trans_off_diag * np.sum(prob_x_t_z_given_y * backwardProbs[t+1], axis=-1))
+        print("transExpCount: ", transExpCount)
+      # XXX
       transExpCount = np.maximum(transExpCount, EPS) / np.sum(np.maximum(transExpCount, EPS))
 
+      # XXX
       # Reduce the number of parameters if the length of image-caption pairs vary too much by maintaining the Toeplitz assumption
       if len(self.lenProb) >= 6:
         transJumpCount = {}
@@ -414,21 +446,19 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
   #
   # Outputs:
   # -------
-  #   newConceptCounts: Ty x K maxtrix storing p(z_i|x, y)
-  def updateConceptCounts(self, vSen, aSen, segmentation, debug=False):
-    T = len(segmentation) - 1
+  #   newConceptCounts: Ty x K maxtrix storing p(z_i|x, y) 
+  def updateConceptCounts(self, vSen, aSen, debug=False):
+    T = len(aSen)
     nState = vSen.shape[0] 
     newConceptCounts = np.zeros((nState, self.nWords)) 
     probs_x_given_y_concat = np.zeros((T, nState * self.nWords, nState))
     probs_z_given_y = self.softmaxLayer(vSen)
-    probs_x_given_z = np.asarray([[self.obs[k][aSen[begin:end]] for begin, end in zip(segmentation[:-1], segmentation[1:])] for k in range(self.nWords)])
-
     for i in range(nState):
       for k in range(self.nWords):
         probs_z_given_y_ik = deepcopy(probs_z_given_y)
         probs_z_given_y_ik[i] = 0.
         probs_z_given_y_ik[i, k] = 1.
-        probs_x_given_y_concat[:, i*self.nWords+k, :] = (probs_z_given_y_ik @ probs_x_given_z.T).T
+        probs_x_given_y_concat[:, i*self.nWords+k, :] = (probs_z_given_y_ik @ (self.obs @ aSen.T)).T
 
     forwardProbsConcat = np.zeros((nState * self.nWords, nState))
     forwardProbsConcat = self.init[nState] * probs_x_given_y_concat[0]
@@ -436,9 +466,7 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
       forwardProbsConcat = (forwardProbsConcat @ self.trans[nState]) * probs_x_given_y_concat[t+1]
 
     newConceptCounts = np.sum(forwardProbsConcat, axis=-1).reshape((nState, self.nWords))
-    newConceptCounts = ((probs_z_given_y * newConceptCounts).T / np.sum(probs_z_given_y * newConceptCounts, axis=1)).T 
-    if debug:
-      print(newConceptCounts)
+    newConceptCounts = ((probs_z_given_y * newConceptCounts).T / np.maximum(np.sum(probs_z_given_y * newConceptCounts, axis=1), EPS)).T 
     return newConceptCounts
 
   # Inputs:
@@ -517,23 +545,29 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
 
   def computeAvgLogLikelihood(self):
     ll = 0.
-    for vSen, aSen, segmentation in zip(self.vCorpus, self.aCorpus, self.segmentations):
-      forwardProb = self.forward(vSen, aSen, segmentation=segmentation)
+    for vSen, aSen in zip(self.vCorpus, self.aCorpus):
+      forwardProb = self.forward(vSen, aSen)
+      #backwardProb = self.backward(tSen, fSen)
       # XXX
       likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
       ll += math.log(likelihood)
     return ll / len(self.vCorpus)
 
-  # TODO
-  def align(self, aSen, vSen, segmentation, unkProb=10e-12, debug=False):
+  def align(self, aSen, vSen, unkProb=10e-12, debug=False):
     nState = len(vSen)
-    T = len(segmentation) - 1
+    T = len(aSen)
     scores = np.zeros((nState,))
     probs_z_given_y = self.softmaxLayer(vSen)
-    probs_x_given_z = np.asarray([[self.obs[k][aSen[begin:end]] for begin, end in zip(segmentation[:-1], segmentation[1:])] for k in range(self.nWords)])
+    
     backPointers = np.zeros((T, nState), dtype=int)
-    probs_x_given_y = (probs_z_given_y @ probs_x_given_z.T).T 
+    probs_x_given_y = (probs_z_given_y @ (self.obs @ aSen.T)).T    
+    if debug:
+      print('probs_z_given_y: ', probs_z_given_y)
+      print('probs_x_given_y: ', probs_x_given_y)
+    
     scores = self.init[nState] * probs_x_given_y[0]
+    if debug:
+      print('scores: ', scores)
 
     alignProbs = [scores.tolist()] 
     for t in range(1, T):
@@ -541,17 +575,26 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
       backPointers[t] = np.argmax(candidates, axis=0)
       # XXX
       scores = np.maximum(np.max(candidates, axis=0), EPS)
+      if debug:
+        print('self.init: ', self.init[nState])
+        print('self.trans: ', self.trans[nState])
+        print('backPtrs: ', backPointers[t])
+        print('candidates: ', candidates)
+
       alignProbs.append((scores / np.sum(np.maximum(scores, EPS))).tolist())      
+      #if DEBUG:
+      #  print(scores)
     
     curState = np.argmax(scores)
     bestPath = [int(curState)]
     for t in range(T-1, 0, -1):
+      if DEBUG:
+        print('curState: ', curState)
       curState = backPointers[t, curState]
-      bestPath += [int(curState)] * (segmentation[t] - segmentation[t-1])
-       
+      bestPath.append(int(curState))
+    
     return bestPath[::-1], alignProbs
 
-  # TODO
   def cluster(self, aSen, vSen, alignment):
     nState = len(vSen)
     T = len(aSen)
@@ -625,7 +668,7 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     # Write to a .json file for evaluation
     with open(filePrefix+'.json', 'w') as f:
       json.dump(aligns, f, indent=4, sort_keys=True)             
-  
+
   def printUnimodalCluster(self, filePrefix):
     f = open(filePrefix+'.txt', 'w')
     cluster_infos = []
@@ -642,22 +685,6 @@ class ImagePhoneGaussianSegmentalWordDiscoverer:
     
     with open(filePrefix+'.json', 'w') as f:
       json.dump(cluster_infos, f, indent=4, sort_keys=True)
-
-# Inputs:
-# ------
-#   p_k: K x 1 storing the probablity mass function; do not assume p_k to be normalized
-# 
-# Outputs:
-# -------
-#   k: integer storing the index sampled from p_k
-import random
-def draw(p_k):
-    k_uni = np.sum(p_k) * random.random()
-    for i in xrange(len(p_k)):
-        k_uni = k_uni - p_k[i]
-        if k_uni < 0:
-            return i
-    return len(p_k) - 1
 
 if __name__ == '__main__':
   tasks = [2]
@@ -727,8 +754,8 @@ if __name__ == '__main__':
     speechFeatureFile = '../data/mscoco2k_phone_captions_segmented.txt'
     imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
     modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1}
-    modelName = 'exp/may21_mscoco2k_gaussian_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
+    modelName = 'exp/may21_mscoco2k_gaussian_hmm_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
     print(modelName)
-    model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
+    model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(20, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', isSegmented=True, debug=False)  
