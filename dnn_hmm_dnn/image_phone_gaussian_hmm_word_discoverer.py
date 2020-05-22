@@ -251,7 +251,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       normFactor = np.sum(np.maximum(phoneCounts, EPS), axis=-1) 
       self.obs = (phoneCounts.T / normFactor).T
       
-      self.updateSoftmaxWeight(conceptCounts, debug=False) 
+      posteriorGaps[epoch] = self.updateSoftmaxWeight(conceptCounts, debug=False) 
 
       if (epoch + 1) % 10 == 0:
         self.lr /= 10

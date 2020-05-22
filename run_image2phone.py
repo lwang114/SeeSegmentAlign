@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--has_null', help='Include NULL symbol in the image feature', action='store_true')
 parser.add_argument('--dataset', choices={'mscoco2k', 'mscoco20k', 'flickr'}, help='Dataset used for training the model')
 parser.add_argument('--feat_type', choices={'synthetic', 'vgg16_penult', 'res34'}, help='Type of image features')
-parser.add_argument('--model_type', choices={'cascade'}, default='gaussian', help='Word discovery model type')
+parser.add_argument('--model_type', choices={'phone', 'cascade'}, default='gaussian', help='Word discovery model type')
 parser.add_argument('--momentum', type=float, default=0.0, help='Momentum used for GD iterations (hmm-dnn only)')
 parser.add_argument('--lr', type=float, default=0.1, help='Learning rate used for GD iterations (hmm-dnn only)')
 parser.add_argument('--hidden_dim', type=int, default=100, help='Hidden dimension (two-layer hmm-dnn only)')
@@ -29,8 +29,11 @@ args = parser.parse_args()
 if args.dataset == 'mscoco2k':
   nExamples = 2541
   dataDir = 'data/'
-  phoneCaptionFile = dataDir + 'mscoco2k_phone_captions.txt' 
-  speechFeatureFile = dataDir + 'mscoco2k_phone_captions.txt'
+  phoneCaptionFile = dataDir + 'mscoco2k_phone_captions.txt'
+  if args.model_type == 'phone': 
+    speechFeatureFile = dataDir + 'mscoco2k_phone_captions.txt'
+  elif args.model_type == 'cascade':
+    speechFeatureFile = dataDir + 'mscoco2k_phone_captions_segmented.txt'
   # 'tdnn/exp/blstm2_mscoco_train_sgd_lr_0.00010_feb28/phone_features_discrete.txt' # XXX 
   imageConceptFile = dataDir + 'mscoco2k_image_captions.txt'
   if args.feat_type == 'synthetic':
@@ -97,14 +100,13 @@ if args.model_type == 'cascade':
 else:
   raise ValueError('Model type not specified or invalid model type')
 
-modelName = expDir + 'image_phone'
+modelName = expDir + '%s' % args.model_type
 predAlignmentFile = modelName + '_alignment.json'
 
 if not os.path.isdir(expDir):
   print('Create a new directory: ', expDir)
   os.mkdir(expDir)
 
-modelName = expDir + 'image_phone'
 print('Experiment directory: ', expDir)
    
 # XXX
