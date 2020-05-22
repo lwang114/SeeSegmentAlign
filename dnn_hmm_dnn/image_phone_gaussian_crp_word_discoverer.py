@@ -131,7 +131,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
     
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
@@ -146,11 +146,11 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     aCorpusStr = []
     self.phonePrior = {}
     # XXX
-    # i = 0
+    i = 0
     for line in f:
-      # if i >= 30:
-      #   break
-      # i += 1
+      if i >= 30:
+        break
+      i += 1
       aSen = line.strip().split()
       self.aCorpus.append(aSen)
       for phn in aSen:
@@ -295,7 +295,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
     if not segmentation:
       T = len(aSen)
-      forwardProbs = np.zeros((T, nState, self.nWords))
+      forwardProbs = np.zeros((T, nState, self.nWords)) 
       for t in range(1, T+1): 
         for s in range(t):
           segment = ' '.join(aSen[s:t]) 
@@ -307,13 +307,16 @@ class ImagePhoneGaussianCRPWordDiscoverer:
             else:
               p_init = None
             prob_x_t_given_z.append(self.restaurants[k].prob(segment, p_init))
-          prob_x_t_given_z = np.asarray(prob_x_t_given_z)
-              
+          prob_x_t_given_z = np.asarray(prob_x_t_given_z)    
           prob_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z
-          # Compute the diagonal term
-          forwardProbs[t-1] += (trans_diag @ forwardProbs[s-1]) * prob_x_t_given_z
-          # Compute the off-diagonal term 
-          forwardProbs[t-1] += (((trans_off_diag.T @ np.sum(forwardProbs[s-1], axis=-1))) * prob_x_t_z_given_y.T).T 
+          
+          if s == 0:
+            forwardProbs[t-1] = self.init[nState][:, np.newaxis] * prob_x_t_z_given_y 
+          else:
+            # Compute the diagonal term
+            forwardProbs[t-1] += (trans_diag @ forwardProbs[s-1]) * prob_x_t_given_z
+            # Compute the off-diagonal term 
+            forwardProbs[t-1] += (((trans_off_diag.T @ np.sum(forwardProbs[s-1], axis=-1))) * prob_x_t_z_given_y.T).T 
     else:
       T = len(segmentation) - 1
       forwardProbs = np.zeros((T, nState, self.nWords))       
@@ -330,7 +333,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
           prob_x_t_given_z[k].append(self.restaurants[k].prob(segment, p_init))
       prob_x_t_given_z = np.asarray(prob_x_t_given_z).T
 
-      forwardProbs[0] = np.tile(self.init[nState][:, np.newaxis], (1, self.nWords)) * probs_z_given_y * prob_x_t_given_z[0]
+      forwardProbs[0] = self.init[nState][:, np.newaxis] * probs_z_given_y * prob_x_t_given_z[0]
       for t in range(T-1):
         prob_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z[t+1]
         # Compute the diagonal term
@@ -678,7 +681,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
   def cluster(self, aSen, vSen, alignment, segmentation):
     nState = len(vSen)
-    T = len(aSen)
+    T = len(segmentation) - 1
     probs_z_given_y = self.softmaxLayer(vSen)
     prob_x_t_given_z = []
     for k in range(self.nWords):
@@ -833,7 +836,7 @@ if __name__ == '__main__':
   if 2 in tasks:      
     speechFeatureFile = '../data/mscoco2k_phone_captions.txt'
     imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1}
+    modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1, 'alpha_0': 1.}
     modelName = 'exp/may21_mscoco2k_gaussian_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
     print(modelName)
     model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)

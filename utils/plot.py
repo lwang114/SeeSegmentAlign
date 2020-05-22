@@ -236,36 +236,6 @@ def generate_smt_alignprob_plots(in_file, indices, out_dir='', T=100, log_prob=F
       print(normalized, np.sum(normalized, axis=1))
     plot_attention(sent, concepts, normalized, '%s%s.png' % (out_dir, str(index)))
 
-'''def compare_attentions(in_files, indices=None): 
-  fig, axes = plt.subplots(1, len(attention_files))  
-  for f in attention_files:
-    for k, d in enumerate(attention_dirs):
-      fp = open(d + f, 'r')
-      att_info = json.load(fp)
-      fp.close()
-
-      if type(att_info) == list:
-        att_info = att_info[0]
-   
-      src_sent = None
-      trg_sent = None
-      if 'caption' in att_info: 
-        src_sent = att_info['caption']
-        trg_sent = att_info['image_concepts']
-      else:
-        src_sent = att_info['src_sent']
-        trg_sent = att_info['trg_sent']
-
-      index = att_info['index']
-      attention = np.array(att_info['attentions'])
-      plot_attention(src_sent, trg_sent, 
-                     attention, 
-                     filename='%s%s.png' % (out_dir, str(index)),
-                     draw_plot=False, 
-                     ax=ax[k], 
-                     close=False)
-'''
-
 def generate_gold_alignment_plots(in_file, indices=None, out_dir=''):
   fp = open(in_file, 'r')
   align_info = json.load(fp)
@@ -314,14 +284,7 @@ def plot_roc(pred_file, gold_file, class_name, out_file=None, draw_plot=True):
     else:
       raise TypeError('Invalid file format')
 
-    #if DEBUG:
-    #  print("gold image concepts, pred image concepts", g["image_concepts"], p["image_concepts"])
-    #  print("i, index, p_ali.shape, g_ali.shape: ", i, p["index"], np.asarray(p_ali).shape, np.asarray(g_ali).shape)
-    #  print("# of concepts for gold, # of concepts for pred: ", len(g_concepts), np.asarray(p_probs).shape[1])
-
     for a_p, a_g, p_prob in zip(p_ali, g_ali, p_probs):
-      #if DEBUG:
-      #  print("a_p, a_g, p_prob.shape: ", a_p, a_g, np.asarray(p_prob).shape)
       if g_concepts[a_g] == class_name:
         y_true.append(1)
       else:
@@ -350,10 +313,6 @@ def plot_roc(pred_file, gold_file, class_name, out_file=None, draw_plot=True):
 
 def plot_avg_roc(pred_json, gold_json, concept2idx=None, freq_cutoff=100, out_file=None):
   top_classes, top_freqs = plot_img_concept_distribution(gold_json, concept2idx, cutoff=10, draw_plot=False)
-  '''
-  avg_fpr = 0.
-  avg_tpr = 0.
-  '''
   fig, ax = plt.subplots()
     
   for c, f in zip(top_classes, top_freqs):
@@ -372,10 +331,6 @@ def plot_avg_roc(pred_json, gold_json, concept2idx=None, freq_cutoff=100, out_fi
   else:
     plt.show() 
   plt.close()
-  '''
-  avg_fpr += fpr
-  avg_tpr += tpr
-  '''
 
 def plot_acoustic_features(utterance_idx, audio_dir, feat_dir, out_file=None):
   mfccs = np.load(feat_dir+"flickr_mfcc_cmvn.npz", "r")
@@ -415,9 +370,6 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
     concept2idx = json.load(f)
 
   concept_names = [c for c in concept2idx.keys()]
-  '''
-  top_classes, top_freqs = plot_img_concept_distribution(gold_json, concept2idx, cutoff=10000, draw_plot=False)
-  '''
   n_c = len(concept_names)
 
   # For each concept, compute a concept F1 score by converting the alignment to a binary vector
@@ -504,7 +456,9 @@ def plot_likelihood_curve(exp_dir):
   model_names = []
   fig, ax = plt.subplots()
   for datafile in os.listdir(exp_dir):
-    model_names.append(' '.join(datafile.split('.')[0].split('_')[-2:]))
+    if datafile.split('.')[0].split('_')[-1] != 'likelihoods':
+      continue
+    model_names.append(' '.join(datafile.split('.')[0].split('_')[:2]))
     likelihoods = np.load(exp_dir + datafile)
     plt.plot(np.arange(len(likelihoods)), likelihoods)
   
@@ -513,8 +467,24 @@ def plot_likelihood_curve(exp_dir):
   plt.legend(model_names, loc='best')
   plt.savefig(exp_dir + 'likelihood_curves', loc='best')
 
+def plot_posterior_gap_curve(exp_dir):
+  model_names = []
+  fig, ax = plt.subplots()
+  for datafile in os.listdir(exp_dir):
+    print(datafile.split('.')[0].split('_')[-2:])
+    if '_'.join(datafile.split('.')[0].split('_')[-2:]) != 'posterior_gaps':
+      continue
+    model_names.append(' '.join(datafile.split('.')[0].split('_')[:2]))
+    likelihoods = np.load(exp_dir + datafile)
+    plt.plot(np.arange(len(likelihoods)), likelihoods)
+  
+  plt.xlabel('Number of Epoch')
+  plt.ylabel('Total Variational Distance Between p(z|x, y) and p(z|y)')
+  plt.legend(model_names, loc='best')
+  plt.savefig(exp_dir + 'posterior_gap_curves', loc='best')
+
 if __name__ == '__main__': 
-  tasks = [2]
+  tasks = [4]
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
   parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
@@ -527,10 +497,10 @@ if __name__ == '__main__':
     gold_json = '../data/flickr30k/audio_level/flickr30k_gold_alignment.json'
     concept2idx_file = '../data/flickr30k/concept2idx.json'
   elif args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
-    gold_json = '../data/mscoco/%s_gold_alignment.json' % args.dataset
-    with open('../data/mscoco/concept2idx_integer.json', 'w') as f:
+    gold_json = '../data/%s_gold_alignment.json' % args.dataset
+    with open('../data/concept2idx_integer.json', 'w') as f:
       json.dump({i:i for i in range(65)}, f, indent=4, sort_keys=True)
-    concept2idx_file = '../data/mscoco/concept2idx_integer.json'
+    concept2idx_file = '../data/concept2idx_integer.json'
   else:
     raise ValueError('Dataset not specified or not valid')
 
@@ -652,3 +622,10 @@ if __name__ == '__main__':
     top_classes, _ = plot_img_concept_distribution(gold_json, concept2idx_file, cutoff=k)
     with open('top_%d_concept_names.txt' % k, 'w') as f:
       f.write('\n'.join(top_classes))
+  #-----------------------------------#
+  # Log Likelihood and Posterior Gap #
+  #-----------------------------------#
+  if 4 in tasks:
+    plot_likelihood_curve(args.exp_dir)
+    plot_posterior_gap_curve(args.exp_dir)
+
