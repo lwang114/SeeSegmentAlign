@@ -9,14 +9,14 @@ from sklearn.cluster import KMeans
 
 NULL = "NULL"
 DEBUG = False
-EPS = 1e-50
+EPS = 1e-100
 random.seed(1)
 np.random.seed(1)
 
 # A word discovery model using image regions and phones
 # * The transition matrix is assumed to be Toeplitz 
 class ImagePhoneGaussianHMMWordDiscoverer:
-  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, modelName='image_phone_hmm_word_discoverer'):
+  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=None, modelName='image_phone_hmm_word_discoverer'):
     self.modelName = modelName 
     # Initialize data structures for storing training data
     self.aCorpus = []                   # aCorpus is a list of acoustic features
@@ -36,14 +36,14 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     self.avgLogTransProb = float('-inf')
      
     # Read the corpus
-    self.readCorpus(speechFeatureFile, imageFeatureFile, debug=False);
+    self.readCorpus(speechFeatureFile, imageFeatureFile, splitFile, debug=False);
     self.initProbFile = modelConfigs.get('init_prob_file', None)
     self.transProbFile = modelConfigs.get('trans_prob_file', None)
     self.obsProbFile = modelConfigs.get('obs_prob_file', None)
     self.visualAnchorFile = modelConfigs.get('visual_anchor_file', None)
      
      
-  def readCorpus(self, speechFeatFile, imageFeatFile, debug=False):
+  def readCorpus(self, speechFeatFile, imageFeatFile, splitFile, debug=False):
     aCorpus = []
     vCorpus = []
     self.phone2idx = {}
@@ -67,10 +67,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         print('ex: ', ex)
         print('vfeat empty: ', vfeat.shape) 
         self.vCorpus[ex] = np.zeros((1, self.imageFeatDim))
- 
-    if debug:
-      print('len(vCorpus): ', len(self.vCorpus))
-
+    
     f = open(speechFeatFile, 'r')
     aCorpusStr = []
     for line in f:
@@ -95,6 +92,10 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       for t, phn in enumerate(aSenStr):
         aSen[t, self.phone2idx[phn.lower()]] = 1.
       self.aCorpus.append(aSen)
+    
+    f = open(splitFile, 'r')
+    self.testIndices = [i for i, line in enumerate(f.read().strip().split('\n')) if int(line)]
+    f.close()
            
     print('----- Corpus Summary -----')
     print('Number of examples: ', len(self.aCorpus))
@@ -201,8 +202,8 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     if not warmStart:
       self.initializeModel()
     
-    maxLikelihood = -np.inf
     likelihoods = np.zeros((numIterations,))
+    posteriorGaps = np.zeros((numIterations,)) 
     for epoch in range(numIterations): 
       begin_time = time.time()
       initCounts = {m: np.zeros((m,)) for m in self.lenProb}
@@ -216,17 +217,15 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         likelihood = self.computeAvgLogLikelihood()
         likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
-        if writeModel and likelihood > maxLikelihood:
-          self.printModel(self.modelName)
-          self.printAlignment(self.modelName + '_alignment', debug=False)                
-          maxLikelihood = likelihood
+        if writeModel and epoch % 10 == 0:
+          self.printModel(self.modelName + '_' + str(epoch))
+          self.printAlignment(self.modelName + '_alignment', debug=False)
       
       for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
+        if ex in self.testIndices:
+          continue
         forwardProbs = self.forward(vSen, aSen, debug=False)
         backwardProbs = self.backward(vSen, aSen, debug=False) 
-        if debug:
-          print('forward prob: ', forwardProbs)
-          print('backward prob: ', backwardProbs)
         initCounts[len(vSen)] += self.updateInitialCounts(forwardProbs, backwardProbs, vSen, aSen, debug=False)
         transCounts[len(vSen)] += self.updateTransitionCounts(forwardProbs, backwardProbs, vSen, aSen, debug=False)
         stateCounts = self.updateStateCounts(forwardProbs, backwardProbs)
@@ -252,11 +251,6 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       normFactor = np.sum(np.maximum(phoneCounts, EPS), axis=-1) 
       self.obs = (phoneCounts.T / normFactor).T
       
-      if debug:
-        print('phoneCounts: ', phoneCounts)
-        print('self.obs: ', self.obs)
-      
-      # XXX
       self.updateSoftmaxWeight(conceptCounts, debug=False) 
 
       if (epoch + 1) % 10 == 0:
@@ -266,6 +260,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         print('Epoch %d takes %.2f s to finish' % (epoch, time.time() - begin_time))
 
     np.save(self.modelName+'_likelihoods.npy', likelihoods)
+    np.save(self.modelName+'_average_posterior_gaps.npy', posteriorGaps)
 
   # Inputs:
   # ------
@@ -475,8 +470,9 @@ class ImagePhoneGaussianHMMWordDiscoverer:
   #
   # Outputs:
   # -------
-  #   None
+  #   posteriorGaps: average total variational distance between the uni- and multimodal posteriors
   def updateSoftmaxWeight(self, conceptCounts, debug=False):
+    posteriorGaps = 0.
     if self.isExact:
       musNext = np.zeros((self.nWords, self.imageFeatDim))
       Delta = conceptCount - zProb 
@@ -490,13 +486,12 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       for vSen, conceptCount in zip(self.vCorpus, conceptCounts):
         zProb = self.softmaxLayer(vSen, debug=debug)
         Delta = conceptCount - zProb 
+        posteriorGaps += 1. / len(self.vCorpus) * np.sum(np.abs(Delta))
         dmus += 1. / (len(self.vCorpus) * self.width) * (Delta.T @ vSen - (np.sum(Delta, axis=0) * self.mus.T).T) 
-      # XXX
-      if debug:
-        print('conceptCount: ', conceptCount)
-        print('zProb: ', zProb)
-        print('dmus: ', dmus)
       self.mus = (1. - self.momentum) * self.mus + self.lr * dmus
+    
+    return posteriorGaps 
+
 
   def softmaxLayer(self, vSen, debug=False):
     N = vSen.shape[0]
@@ -544,10 +539,10 @@ class ImagePhoneGaussianHMMWordDiscoverer:
 
   def computeAvgLogLikelihood(self):
     ll = 0.
-    for vSen, aSen in zip(self.vCorpus, self.aCorpus):
+    for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
+      if ex in self.testIndices:
+        continue
       forwardProb = self.forward(vSen, aSen)
-      #backwardProb = self.backward(tSen, fSen)
-      # XXX
       likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
       ll += math.log(likelihood)
     return ll / len(self.vCorpus)
