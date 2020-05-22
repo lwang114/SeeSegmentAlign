@@ -47,13 +47,14 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     aCorpus = []
     vCorpus = []
     self.phone2idx = {}
+    self.phoneNames = []
     nTypes = 0
     nPhones = 0
     nImages = 0
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]    
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))] 
     
     if self.hasNull:
       # Add a NULL concept vector
@@ -81,6 +82,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       for phn in aSen:
         if phn.lower() not in self.phone2idx:
           self.phone2idx[phn.lower()] = nTypes
+          self.phoneNames.append(phn.lower())
           nTypes += 1
         nPhones += 1
     f.close()
@@ -199,9 +201,6 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     if not warmStart:
       self.initializeModel()
     
-    if writeModel:
-      self.printModel('initial_model.txt')
-    
     maxLikelihood = -np.inf
     likelihoods = np.zeros((numIterations,))
     for epoch in range(numIterations): 
@@ -218,8 +217,8 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
         if writeModel and likelihood > maxLikelihood:
-          self.printModel(self.modelName + '_iter='+str(epoch)+'.txt')
-          self.printAlignment(self.modelName+'_iter='+str(epoch)+'_alignment', debug=False)                
+          self.printModel(self.modelName)
+          self.printAlignment(self.modelName + '_alignment', debug=False)                
           maxLikelihood = likelihood
       
       for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
@@ -641,9 +640,10 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       if isSegmented:
         alignmentPhoneLevel = []
         alignProbsPhoneLevel = []
-        for i_a, prob, segment in zip(alignment, alignProbs, aSen):
+        for i_a, prob, a_vec in zip(alignment, alignProbs, aSen):
+          segment = self.phoneNames[np.argmax(a_vec)]
           alignmentPhoneLevel += [i_a] * len(segment.split(','))  
-          alignProbsPhoneLevel += [prob] * len(segment.split(','))  
+          alignProbsPhoneLevel += [prob] * len(segment.split(',')) 
         align_info = {
             'index': i,
             'image_concepts': clustersV,
@@ -660,8 +660,14 @@ class ImagePhoneGaussianHMMWordDiscoverer:
             'concept_probs': self.conceptCounts[i].tolist(),
           }
       aligns.append(align_info)
-      for a in alignment:
-        f.write('%d ' % a)
+        
+      for a_vec in aSen:
+        segment = self.phoneNames[np.argmax(a_vec)]
+        f.write('%s ' % segment)
+      f.write('\n')
+
+      for ali in alignment:
+        f.write('%d ' % ali)
       f.write('\n\n')
     f.close()
     
@@ -757,5 +763,5 @@ if __name__ == '__main__':
     modelName = 'exp/may21_mscoco2k_gaussian_hmm_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
     print(modelName)
     model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
-    model.trainUsingEM(20, writeModel=True, debug=False)
+    model.trainUsingEM(10, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', isSegmented=True, debug=False)  
