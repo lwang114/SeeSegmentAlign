@@ -92,10 +92,13 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       for t, phn in enumerate(aSenStr):
         aSen[t, self.phone2idx[phn.lower()]] = 1.
       self.aCorpus.append(aSen)
-    
-    f = open(splitFile, 'r')
-    self.testIndices = [i for i, line in enumerate(f.read().strip().split('\n')) if int(line)]
-    f.close()
+
+    if splitFile:    
+      f = open(splitFile, 'r')
+      self.testIndices = [i for i, line in enumerate(f.read().strip().split('\n')) if int(line)]
+      f.close()
+    else:
+      self.testIndices = []
            
     print('----- Corpus Summary -----')
     print('Number of examples: ', len(self.aCorpus))
@@ -221,6 +224,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
           self.printModel(self.modelName + '_' + str(epoch))
           self.printAlignment(self.modelName + '_alignment', debug=False)
       
+      # E step
       for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
         if ex in self.testIndices:
           continue
@@ -235,7 +239,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         self.conceptCountsA[ex] += np.sum(stateCounts, axis=1)
       self.conceptCounts = conceptCounts
 
-      # Normalize
+      # M step
       for m in self.lenProb:
         self.init[m] = np.maximum(initCounts[m], EPS) / np.sum(np.maximum(initCounts[m], EPS)) 
 
@@ -483,10 +487,12 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     else:
       dmus = np.zeros((self.nWords, self.imageFeatDim))
       normFactor = np.zeros((self.nWords,))
-      for vSen, conceptCount in zip(self.vCorpus, conceptCounts):
+      for ex, (vSen, conceptCount) in enumerate(zip(self.vCorpus, conceptCounts)):
+        if ex in self.testIndices:
+          continue
         zProb = self.softmaxLayer(vSen, debug=debug)
         Delta = conceptCount - zProb 
-        posteriorGaps += 1. / len(self.vCorpus) * np.sum(np.abs(Delta))
+        posteriorGaps += 1. / (len(self.vCorpus) - len(self.testIndices)) * np.sum(np.abs(Delta))
         dmus += 1. / (len(self.vCorpus) * self.width) * (Delta.T @ vSen - (np.sum(Delta, axis=0) * self.mus.T).T) 
       self.mus = (1. - self.momentum) * self.mus + self.lr * dmus
     

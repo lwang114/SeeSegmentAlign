@@ -1,4 +1,5 @@
 from dnn_hmm_dnn.image_phone_gaussian_hmm_word_discoverer import *
+from dnn_hmm_dnn.image_phone_gaussian_crp_word_discoverer import *
 # from clda.image_phone_word_discoverer import *
 from utils.clusteval import *
 from utils.postprocess import *
@@ -11,16 +12,18 @@ import random
 
 random.seed(2)
 parser = argparse.ArgumentParser()
+# TODO Remove unused options
 parser.add_argument('--has_null', help='Include NULL symbol in the image feature', action='store_true')
 parser.add_argument('--dataset', choices={'mscoco2k', 'mscoco20k', 'flickr'}, help='Dataset used for training the model')
 parser.add_argument('--feat_type', choices={'synthetic', 'vgg16_penult', 'res34'}, help='Type of image features')
-parser.add_argument('--model_type', choices={'phone', 'cascade'}, default='gaussian', help='Word discovery model type')
-parser.add_argument('--momentum', type=float, default=0.0, help='Momentum used for GD iterations (hmm-dnn only)')
-parser.add_argument('--lr', type=float, default=0.1, help='Learning rate used for GD iterations (hmm-dnn only)')
+parser.add_argument('--model_type', choices={'phone', 'cascade', 'end-to-end'}, default='end-to-end', help='Word discovery model type')
+parser.add_argument('--momentum', type=float, default=0.0, help='Momentum used for GD iterations')
+parser.add_argument('--lr', type=float, default=0.1, help='Learning rate used for GD iterations')
 parser.add_argument('--hidden_dim', type=int, default=100, help='Hidden dimension (two-layer hmm-dnn only)')
 parser.add_argument('--normalize_vfeat', help='Normalize each image feature to have unit L2 norm', action='store_true')
-parser.add_argument('--step_scale', type=float, default=0.1, help='Random jump step scale for simulated annealing (hmm-dnn only)')
-parser.add_argument('--width', type=float, default=1., help='width parameter of the radial basis activation function (hmm-dnn only)')
+parser.add_argument('--step_scale', type=float, default=0.1, help='Random jump step scale for simulated annealing')
+parser.add_argument('--width', type=float, default=1., help='Width parameter of the radial basis activation function')
+parser.add_argument('--alpha_0', type=float, default=1., help='Concentration parameter of the Chinese restaurant process')
 parser.add_argument('--image_posterior_weights_file', type=str, default=None, help='Pretrained weights for the image posteriors')
 parser.add_argument('--n_concepts', type=int, default=50, help='Number of image concept clusters')
 parser.add_argument('--date', type=str, default='', help='Date of starting the experiment')
@@ -30,7 +33,7 @@ if args.dataset == 'mscoco2k':
   nExamples = 2541
   dataDir = 'data/'
   phoneCaptionFile = dataDir + 'mscoco2k_phone_captions.txt'
-  if args.model_type == 'phone': 
+  if args.model_type == 'phone' or args.model_type == 'end-to-end': 
     speechFeatureFile = dataDir + 'mscoco2k_phone_captions.txt'
   elif args.model_type == 'cascade':
     speechFeatureFile = dataDir + 'mscoco2k_phone_captions_segmented.txt'
@@ -88,17 +91,16 @@ modelConfigs = {
   'normalize_vfeat': args.normalize_vfeat, 
   'step_scale': args.step_scale, 
   'width': args.width,
+  'alpha_0': args.alpha_0,
   'hidden_dim': args.hidden_dim,
   'image_posterior_weights_file': args.image_posterior_weights_file
   }
 
-if args.model_type == 'cascade':
-  if len(args.date) > 0:
-    expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_stepscale%.2f_nconcepts%d_%s/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['step_scale'], nWords, args.date) 
-  else:
-    expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_stepscale%.2f/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['step_scale'])
+if len(args.date) > 0:
+  expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_width%.3f_alpha0_%.3f_nconcepts%d_%s/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['width'], modelConfigs['alpha_0'], nWords, args.date) 
 else:
-  raise ValueError('Model type not specified or invalid model type')
+  # TODO
+  expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_stepscale%.2f/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['step_scale'])
 
 modelName = expDir + '%s' % args.model_type
 predAlignmentFile = modelName + '_alignment.json'
@@ -128,14 +130,24 @@ if 1 in tasks:
             f.write('1\n')
           else:
             f.write('0\n')
-      if args.model_type == 'cascade':
+      nIters = 20
+      if args.model_type == 'cascade' or args.model_type == 'phone':
         model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
-        model.trainUsingEM(20, writeModel=True) 
+      elif args.model_type == 'end-to-end':
+        model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
+        nIters = 100
+      else:
+        raise ValueError('Invalid Model Type')
+      model.trainUsingEM(nIters, writeModel=True, debug=False)
   else:
-    if args.model_type == 'cascade':
+    nIters = 20
+    if args.model_type == 'cascade' or args.model_type == 'phone':
       model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
-    # TODO Other model types
-    model.trainUsingEM(20, writeModel=True, debug=False)
+    elif args.model_type == 'end-to-end':
+      model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
+      nIters = 100
+    
+    model.trainUsingEM(nIters, writeModel=True, debug=False)
     print('Take %.5s s to finish training the model !' % (time.time() - begin_time))
     model.printAlignment(modelName+'_alignment', debug=False) 
     print('Take %.5s s to finish decoding !' % (time.time() - begin_time))

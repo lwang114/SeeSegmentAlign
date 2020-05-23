@@ -103,7 +103,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
   #          trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
   #   segmentations: a list containing time boundaries for each sentence, 
   #                 [[1, s_1^1, ..., T], [1, s_1^2, ..., T], ..., [1, s_1^D, ..., T]]
-  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, modelName='image_phone_hmm_word_discoverer'):
+  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=False, modelName='image_phone_crp'):
     self.modelName = modelName 
     self.alpha0 = modelConfigs.get('alpha_0', 1.0) # Concentration parameter for the Dirichlet prior
     self.hasNull = modelConfigs.get('has_null', False)
@@ -112,7 +112,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     self.momentum = modelConfigs.get('momentum', 0.)
     self.lr = modelConfigs.get('learning_rate', 0.1)
 
-    self.readCorpus(speechFeatureFile, imageFeatureFile, debug=False)
+    self.readCorpus(speechFeatureFile, imageFeatureFile, splitFile, debug=False)
     self.initProbFile = modelConfigs.get('init_prob_file', None)
     self.transProbFile = modelConfigs.get('trans_prob_file', None)
     self.visualAnchorFile = modelConfigs.get('visual_anchor_file', None)
@@ -122,7 +122,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     self.restaurants = [Restaurant(self.alpha0) for _ in range(self.nWords)]
     self.segmentations = [[] for _ in self.aCorpus]
       
-  def readCorpus(self, speechFeatFile, imageFeatFile, debug=False):
+  def readCorpus(self, speechFeatFile, imageFeatFile, splitFile, debug=False):
     self.aCorpus = []
     self.vCorpus = []
     nPhones = 0
@@ -131,7 +131,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
     
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
@@ -148,8 +148,8 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     # XXX
     i = 0
     for line in f:
-      if i >= 30:
-        break
+      # if i >= 30:
+      #   break
       i += 1
       aSen = line.strip().split()
       self.aCorpus.append(aSen)
@@ -164,7 +164,14 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     f.close()
     for phn in self.phonePrior:
       self.phonePrior[phn] /= totalPhones
-   
+    
+    if splitFile: 
+      f = open(splitFile, 'r')
+      self.testIndices = [i for i, line in enumerate(f.read().strip().split('\n')) if int(line)]
+      f.close() 
+    else:
+      self.testIndices = []
+
     print('----- Corpus Summary -----')
     print('Number of examples: ', len(self.aCorpus))
     print('Number of phonetic categories: ', nPhones)
@@ -214,7 +221,8 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     self.segmentations = [[] for _ in self.aCorpus]     
     self.conceptCounts = [None for vSen in self.vCorpus]
     self.restaurantCounts = [None for aSen, vSen in zip(self.aCorpus, self.vCorpus)]
-    likelihoods = []
+    likelihoods = np.zeros((numIterations,))
+    posteriorGaps = np.zeros((numIterations,)) 
 
     order = list(range(len(self.aCorpus)))
     for epoch in range(numIterations): 
@@ -224,8 +232,10 @@ class ImagePhoneGaussianCRPWordDiscoverer:
       # E Step
       random.shuffle(order)
       for ex in order:
+        if ex in self.testIndices:
+          continue
         aSen, vSen = self.aCorpus[ex], self.vCorpus[ex] 
-        alphas = self.forward(vSen, aSen) # Forward filtering,  
+        alphas = self.forward(vSen, aSen) # Forward filtering 
         if epoch > 0: 
           for t, (begin, end) in enumerate(zip(self.segmentations[ex][:-1], self.segmentations[ex][1:])): # Remove the old tables            
             segment = ' '.join(aSen[begin:end]) 
@@ -262,14 +272,13 @@ class ImagePhoneGaussianCRPWordDiscoverer:
           else:
             self.trans[m][s] = np.maximum(transCounts[m][s], EPS) / totCounts[s]
                   
-      self.updateSoftmaxWeight(self.conceptCounts, debug=False) 
-
+      posteriorGaps[epoch] = self.updateSoftmaxWeight(self.conceptCounts, debug=False) 
       if (epoch + 1) % 10 == 0:
         self.lr /= 10
 
       if printStatus:
         likelihood = self.computeLogLikelihood()
-        likelihoods.append(likelihood)
+        likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
         if epoch % 5 == 0:
           self.printModel(self.modelName)
@@ -277,6 +286,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
         print('Epoch %d takes %.2f s to finish' % (epoch, time.time() - begin_time))
 
     np.save(self.modelName+'_likelihoods.npy', likelihoods)
+    np.save(self.modelName+'_avg_posterior_gaps.npy', posteriorGaps)
 
   # Inputs:
   # ------
@@ -576,12 +586,17 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     
     dmus = np.zeros((self.nWords, self.imageFeatDim))
     normFactor = np.zeros((self.nWords,))
-    for vSen, conceptCount in zip(self.vCorpus, conceptCounts):
+    for ex, (vSen, conceptCount) in enumerate(zip(self.vCorpus, conceptCounts)):
+      posteriorGaps = 0.
+      if ex in self.testIndices:
+        continue
       zProb = self.softmaxLayer(vSen, debug=debug)
       Delta = conceptCount - zProb 
+      posteriorGaps += 1. / (len(self.vCorpus) - len(self.testIndices)) * np.sum(np.abs(Delta))
       dmus += 1. / (len(self.vCorpus) * self.width) * (Delta.T @ vSen - (np.sum(Delta, axis=0) * self.mus.T).T) 
     
     self.mus = (1. - self.momentum) * self.mus + self.lr * dmus
+    return posteriorGaps
 
   def softmaxLayer(self, vSen, debug=False):
     N = vSen.shape[0]
@@ -627,7 +642,9 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
   def computeLogLikelihood(self):
     ll = 0.
-    for vSen, aSen, segmentation in zip(self.vCorpus, self.aCorpus, self.segmentations):
+    for ex, (vSen, aSen, segmentation) in enumerate(zip(self.vCorpus, self.aCorpus, self.segmentations)):
+      if ex in self.testIndices:
+        continue
       forwardProb = self.forward(vSen, aSen, segmentation=segmentation)
       likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
       ll += math.log(likelihood)
@@ -727,6 +744,10 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     f = open(filePrefix+'.txt', 'w')
     aligns = []
     for i, (aSen, vSen) in enumerate(zip(self.aCorpus, self.vCorpus)):
+      if i in self.testIndices:
+        alphas = self.forward(vSen, aSen) # Forward filtering
+        segments, boundaries = self.backwardSample(vSen, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
+        self.segmentations[i] = deepcopy(boundaries)
       alignment, alignProbs = self.align(aSen, vSen, self.segmentations[i], debug=debug)
       clustersV, clusterProbs = self.cluster(aSen, vSen, alignment, self.segmentations[i])
       
@@ -737,8 +758,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
             'index': i,
             'image_concepts': clustersV,
             'alignment': alignmentPhoneLevel,
-            'align_probs': alignProbs,
-            'concept_probs': self.conceptCounts[i].tolist()
+            'align_probs': alignProbs
           }
       aligns.append(align_info)
       for begin, end in zip(self.segmentations[i][:-1], self.segmentations[i][1:]): 
