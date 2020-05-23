@@ -153,6 +153,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
                                      landmark_file = None,
                                      word_unit_file='word_units.wrd',
                                      phone_unit_file='phone_units.phn',
+                                     split_file = None,
                                      concept2id_file=None, 
                                      include_null = False):
   with open(phone_corpus, 'r') as f_p,\
@@ -173,10 +174,19 @@ def alignment_to_word_units(alignment_file, phone_corpus,
   with open(alignment_file, 'r') as f:
     alignments = json.load(f)
   
+  test_indices = list(range(len(alignments)))
+  if split_file:  
+    with open(split_file, 'r') as f:
+      test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
+    print('test_indices: ', test_indices)
+
   word_units = []
   phn_units = []
+
   # XXX
-  for align_info, a_sent, v_sent in zip(alignments, a_corpus, v_corpus):
+  for ex, (align_info, a_sent, v_sent) in enumerate(zip(alignments, a_corpus, v_corpus)):
+    if not ex in test_indices:
+      continue
     if len(concept2id) > 0:
       image_concepts = [concept2id[c] for c in v_sent]
       # print(image_concepts)
@@ -213,6 +223,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
 
 def alignment_to_word_classes(alignment_file, phone_corpus,
                                    word_class_file='words.class',
+                                   split_file = None,
                                    landmark_file=None, 
                                    include_null = False):
   f = open(phone_corpus, 'r')
@@ -220,11 +231,19 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
   for line in f: 
     a_corpus.append(line.strip().split())
   f.close()
+
   with open(alignment_file, 'r') as f:
     alignments = json.load(f)
+
+  test_indices = list(range(len(alignments)))
+  if split_file:  
+    with open(split_file, 'r') as f:
+      test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
   
   word_units = {}
-  for align_info, a_sent in zip(alignments, a_corpus):
+  for ex, (align_info, a_sent) in enumerate(zip(alignments, a_corpus)):
+    if not ex in test_indices:
+      continue
     pair_id = 'pair_' + str(align_info['index'])
     alignment = align_info['alignment']
     
@@ -286,6 +305,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
       f.write('Class %d:\n' % i_c)
       f.write(''.join(word_units[c]))
       f.write('\n')
+    f.write('\n')
 
 def _findPhraseFromPhoneme(sent, alignment):
   if not hasattr(sent, '__len__') or not hasattr(alignment, '__len__'):
