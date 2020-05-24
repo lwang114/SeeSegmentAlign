@@ -8,6 +8,8 @@ from sklearn.metrics import roc_curve
 from collections import defaultdict
 from scipy.special import logsumexp
 import argparse
+import pandas as pd
+import seaborn as sns; sns.set()
 
 try:
   from postprocess import _findPhraseFromPhoneme 
@@ -453,35 +455,64 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
     return f1_scores
 
 def plot_likelihood_curve(exp_dir):
-  model_names = []
-  fig, ax = plt.subplots()
+  likelihood_data = {'Number of Iterations':[],\
+                     'Average Log Likelihood':[],\
+                     'Model Name':[]}
   for datafile in os.listdir(exp_dir):
     if datafile.split('.')[0].split('_')[-1] != 'likelihoods':
       continue
-    model_names.append(' '.join(datafile.split('.')[0].split('_')[:2]))
+    
     likelihoods = np.load(exp_dir + datafile)
-    plt.plot(np.arange(len(likelihoods)), likelihoods)
-  
-  plt.xlabel('Number of Epoch')
-  plt.ylabel('Log Likelihood')
-  plt.legend(model_names, loc='best')
-  plt.savefig(exp_dir + 'likelihood_curves', loc='best')
+    likelihoods = likelihoods[:20] # XXX
+    model_name = datafile.split('.')[0].split('_')[0]
+    print(model_name)
+    if model_name == 'phone' or model_name == 'image':
+      likelihood_data['Model Name'] += ['HMM'] * len(likelihoods)
+    elif model_name == 'cascade':
+      likelihood_data['Model Name'] += ['Cascade HMM-CRP'] * len(likelihoods)
+    elif model_name == 'end-to-end':
+      likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods)
+      likelihoods /= 19925 # 2541. # XXX normalize the likelihood
+    else:
+      likelihood_data['Model Name'] += [model_name] * len(likelihoods)
+     
+    likelihood_data['Number of Iterations'] += list(range(len(likelihoods)))
+    likelihood_data['Average Log Likelihood'] += likelihoods.tolist()
+
+  print(len(likelihood_data['Number of Iterations']), len(likelihood_data['Average Log Likelihood']), len(likelihood_data['Model Name']))
+  likelihood_df = pd.DataFrame(likelihood_data)
+  ax = sns.lineplot(x='Number of Iterations', y='Average Log Likelihood', hue='Model Name', data=likelihood_df)
+  plt.show()
+  plt.savefig('avg_log_likelihood')
+  plt.close() 
 
 def plot_posterior_gap_curve(exp_dir):
-  model_names = []
-  fig, ax = plt.subplots()
+  gap_data = {'Number of Iterations':[],\
+              'Average gap |p(z|x, y) - p(z|y)|':[],\
+              'Model Name':[]}
   for datafile in os.listdir(exp_dir):
-    print(datafile.split('.')[0].split('_')[-2:])
     if '_'.join(datafile.split('.')[0].split('_')[-2:]) != 'posterior_gaps':
       continue
-    model_names.append(' '.join(datafile.split('.')[0].split('_')[:2]))
-    likelihoods = np.load(exp_dir + datafile)
-    plt.plot(np.arange(len(likelihoods)), likelihoods)
+    gap = np.load(exp_dir + datafile)
+    gap = gap[:20] # XXX
+    model_name = datafile.split('.')[0].split('_')[0]
+    if model_name == 'phone' or model_name == 'image':
+      gap_data['Model Name'] += ['HMM'] * len(gap)
+    elif model_name == 'cascade':
+      gap_data['Model Name'] += ['Cascade HMM-CRP'] * len(gap)
+    elif model_name == 'end-to-end':
+      gap_data['Model Name'] += ['End-to-End HMM-CRP'] * len(gap)
+    else:
+      gap_data['Model Name'] += [model_name] * len(gap)
+
+    gap_data['Number of Iterations'] += list(range(len(gap)))
+    gap_data['Average gap |p(z|x, y) - p(z|y)|'] += gap.tolist()
   
-  plt.xlabel('Number of Epoch')
-  plt.ylabel('Total Variational Distance Between p(z|x, y) and p(z|y)')
-  plt.legend(model_names, loc='best')
-  plt.savefig(exp_dir + 'posterior_gap_curves', loc='best')
+  gap_df = pd.DataFrame(gap_data)
+  ax = sns.lineplot(x='Number of Iterations', y='Average gap |p(z|x, y) - p(z|y)|', hue='Model Name', data=gap_df)
+  plt.show()
+  plt.savefig('avg_posterior_gap')
+  plt.close()
 
 if __name__ == '__main__': 
   tasks = [4]
