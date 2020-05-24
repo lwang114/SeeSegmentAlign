@@ -16,6 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--has_null', help='Include NULL symbol in the image feature', action='store_true')
 parser.add_argument('--dataset', choices={'mscoco2k', 'mscoco20k', 'flickr'}, help='Dataset used for training the model')
 parser.add_argument('--feat_type', choices={'synthetic', 'vgg16_penult', 'res34'}, help='Type of image features')
+parser.add_argument('--audio_feat_type', choices={'ground_truth', 'force_align'}, default='ground_truth')
 parser.add_argument('--model_type', choices={'phone', 'cascade', 'end-to-end'}, default='end-to-end', help='Word discovery model type')
 parser.add_argument('--momentum', type=float, default=0.0, help='Momentum used for GD iterations')
 parser.add_argument('--lr', type=float, default=0.1, help='Learning rate used for GD iterations')
@@ -34,10 +35,15 @@ if args.dataset == 'mscoco2k':
   dataDir = 'data/'
   phoneCaptionFile = dataDir + 'mscoco2k_phone_captions.txt'
   if args.model_type == 'phone' or args.model_type == 'end-to-end': 
-    speechFeatureFile = dataDir + 'mscoco2k_phone_captions.txt'
+    if args.audio_feat_type == 'force_align':
+      speechFeatureFile = dataDir + 'mscoco2k_force_align.txt'
+    else: 
+      speechFeatureFile = dataDir + 'mscoco2k_phone_captions.txt'
   elif args.model_type == 'cascade':
-    speechFeatureFile = dataDir + 'mscoco2k_phone_captions_segmented.txt'
-  # 'tdnn/exp/blstm2_mscoco_train_sgd_lr_0.00010_feb28/phone_features_discrete.txt' # XXX 
+    if args.audio_feat_type == 'force_align':
+      speechFeatureFile = dataDir + 'mscoco2k_force_align_segmented.txt' 
+    else:
+      dataDir + 'mscoco2k_phone_captions_segmented.txt' 
   imageConceptFile = dataDir + 'mscoco2k_image_captions.txt'
   if args.feat_type == 'synthetic':
     imageFeatureFile = dataDir + 'mscoco2k_concept_gaussian_vectors.npz'
@@ -50,9 +56,14 @@ if args.dataset == 'mscoco2k':
   goldAlignmentFile = dataDir + 'mscoco2k_gold_alignment.json'
   nWords = 65
 elif args.dataset == 'mscoco20k':
+  nExamples = 19925
   dataDir = 'data/'
   phoneCaptionFile = dataDir + 'mscoco20k_phone_captions.txt' 
-  speechFeatureFile = dataDir + 'mscoco20k_phone_captions.txt'
+  if args.model_type == 'phone' or args.model_type == 'end-to-end': 
+    speechFeatureFile = dataDir + 'mscoco20k_phone_captions.txt'
+  elif args.model_type == 'cascade':
+    speechFeatureFile = dataDir + 'mscoco20k_phone_captions_segmented.txt'
+
   imageConceptFile = dataDir + 'mscoco20k_image_captions.txt'
   if args.feat_type == 'synthetic':
     imageFeatureFile = dataDir + 'mscoco20k_concept_gaussian_vectors.npz'
@@ -93,14 +104,15 @@ modelConfigs = {
   'width': args.width,
   'alpha_0': args.alpha_0,
   'hidden_dim': args.hidden_dim,
+  'is_segmented': args.model_type == 'cascade',
   'image_posterior_weights_file': args.image_posterior_weights_file
   }
 
 if len(args.date) > 0:
-  expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_width%.3f_alpha0_%.3f_nconcepts%d_%s/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['width'], modelConfigs['alpha_0'], nWords, args.date) 
+  expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_%s_momentum%.1f_lr%.5f_width%.3f_alpha0_%.3f_nconcepts%d_%s/' % (args.dataset, args.model_type, args.feat_type, args.audio_feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['width'], modelConfigs['alpha_0'], nWords, args.date) 
 else:
   # TODO
-  expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_stepscale%.2f/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['step_scale'])
+  expDir = 'dnn_hmm_dnn/exp/%s_%s_%s_momentum%.1f_lr%.5f_width%.3f_alpha0_%.3f_nconcepts%d/' % (args.dataset, args.model_type, args.feat_type, modelConfigs['momentum'], modelConfigs['learning_rate'], modelConfigs['width'], modelConfigs['alpha_0'], nWords) 
 
 modelName = expDir + '%s' % args.model_type
 predAlignmentFile = modelName + '_alignment.json'
@@ -121,21 +133,26 @@ if 1 in tasks:
   print('Start training the model ...')
   begin_time = time.time() 
   if nFolds > 1:
+    # XXX
+    order = list(range(nExamples))
+    random.shuffle(order)
     for k in range(nFolds):
-      order = list(range(nExamples))
-      random.shuffle(order)
       with open(modelName+'_split_%d.txt' % k, 'w') as f:
         for o in order:
-          if o <= int(nExamples / nFolds):
+          foldSize = int(nExamples / nFolds)
+          if o < k * foldSize and o >= (k - 1) * foldSize:
             f.write('1\n')
           else:
             f.write('0\n')
+      print('Finish randomly spliting the data')
+      
+    for k in range(3):
       nIters = 20
       if args.model_type == 'cascade' or args.model_type == 'phone':
         model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
       elif args.model_type == 'end-to-end':
         model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
-        nIters = 100
+        nIters = 40
       else:
         raise ValueError('Invalid Model Type')
       model.trainUsingEM(nIters, writeModel=True, debug=False)

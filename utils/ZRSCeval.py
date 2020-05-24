@@ -16,7 +16,7 @@ parser.add_argument('--dataset', choices=['mscoco2k', 'mscoco20k', 'flickr'])
 parser.add_argument('--nfolds', type=int, default=1)
 args = parser.parse_args()
 
-tasks = [0, 1]
+tasks = [1]
 tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
 #--------------------------#
 # Extract Discovered Words #
@@ -39,6 +39,7 @@ if 0 in tasks:
     model_names = f.read().strip().split()
   
   if args.nfolds > 1:
+    # XXX
     for k in range(args.nfolds):
       pred_alignment_files = ['%s/%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
       split_files = ['%s/%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
@@ -61,19 +62,21 @@ if 0 in tasks:
 #------------------------#
 if 1 in tasks:
   # XXX
-  os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
+  # os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
   if args.nfolds > 1:
     with open(args.exp_dir+'/model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
     
     for model_name in model_names:
+      print('model name: ', model_name)
       grouping_f1s = np.zeros((args.nfolds,))
       coverages = np.zeros((args.nfolds,))
       boundary_f1s = np.zeros((args.nfolds,))
       neds = np.zeros((args.nfolds,))
-      token_f1 = np.zeros((args.nfolds,))
-      type_f1 = np.zeros((args.nfolds,))
+      token_f1s = np.zeros((args.nfolds,))
+      type_f1s = np.zeros((args.nfolds,))
 
+      # XXX
       for k in range(args.nfolds):
         disc_clsfile = '%s/WDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
 
@@ -90,7 +93,7 @@ if 1 in tasks:
         print(model_name)
         grouping = Grouping(discovered)
         grouping.compute_grouping()
-        grouping_f1s[k] = np.maximum(grouping.precision, EPS) * np.maximum(grouping.recall, EPS) / np.maximum(grouping.precision + grouping.recall, EPS)   
+        grouping_f1s[k] = 2 * np.maximum(grouping.precision, EPS) * np.maximum(grouping.recall, EPS) / np.maximum(grouping.precision + grouping.recall, EPS)   
         print('Grouping precision and recall: ', grouping.precision, grouping.recall)
         #print('Grouping fscore: ', grouping.fscore)
 
@@ -101,7 +104,7 @@ if 1 in tasks:
 
         boundary = Boundary(gold, discovered)
         boundary.compute_boundary()
-        boundary_f1s[k] = np.maximum(boundary.precision, EPS) * np.maximum(boundary.recall, EPS) / np.maximum(boundary.precision + boundary.recall, EPS)
+        boundary_f1s[k] = 2 * np.maximum(boundary.precision, EPS) * np.maximum(boundary.recall, EPS) / np.maximum(boundary.precision + boundary.recall, EPS)
         print('Boundary precision and recall: ', boundary.precision, boundary.recall)
         #print('Boundary fscore: ', boundary.fscore)
 
@@ -112,8 +115,8 @@ if 1 in tasks:
 
         token_type = TokenType(gold, discovered)
         token_type.compute_token_type()
-        token_f1s[k] = np.maximum(token_type.precision[0], EPS) * np.maximum(token_type.recall[0], EPS) / np.maximum(token_type.precision[0] + token_type.recall[0], EPS)
-        type_f1s[k] = np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)
+        token_f1s[k] = 2 * np.maximum(token_type.precision[0], EPS) * np.maximum(token_type.recall[0], EPS) / np.maximum(token_type.precision[0] + token_type.recall[0], EPS)
+        type_f1s[k] = 2 * np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)
 
         print('Token type precision and recall: ', token_type.precision, token_type.recall)
         #print('Token type fscore: ', token_type.fscore)    

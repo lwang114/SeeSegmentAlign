@@ -226,10 +226,10 @@ class CRPWordSegmenter:
     self.restaurant.save(outputDir)
              
 if __name__ == '__main__':
-  corpusFile = '../data/mscoco2k_phone_captions.txt'
-  outputDir = 'exp/may20_mscoco/'
+  corpusFile = '../data/mscoco2k_force_align.txt'
+  outputDir = 'exp/may23_mscoco2k_force_align/'
   if not os.path.isdir(outputDir):
     print('Create directory: ', outputDir)
     os.mkdir(outputDir) 
   segmenter = CRPWordSegmenter(corpusFile, alpha0=1.)
-  segmenter.gibbsSampling(nIteration=100, outputDir=outputDir)
+  segmenter.gibbsSampling(nIteration=40, outputDir=outputDir)

@@ -29,6 +29,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     self.lr = modelConfigs.get('learning_rate', 10.)
     self.isExact = modelConfigs.get('is_exact', False)
     self.normalize_vfeat = modelConfigs.get('normalize_vfeat', False) 
+    self.isSegmented = modelConfigs.get('is_segmented', False)
     self.init = {}
     self.trans = {}                 # trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
     self.lenProb = {}
@@ -222,7 +223,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
         if writeModel and epoch % 10 == 0:
           self.printModel(self.modelName + '_' + str(epoch))
-          self.printAlignment(self.modelName + '_alignment', debug=False)
+          self.printAlignment(self.modelName + '_alignment', isSegmented=self.isSegmented, debug=False)
       
       # E step
       for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
