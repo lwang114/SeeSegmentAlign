@@ -43,10 +43,10 @@ if 0 in tasks:
     for k in range(args.nfolds):
       pred_alignment_files = ['%s%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
       split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
+      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
 
       for i, (model_name, pred_alignment_file, split_file) in enumerate(zip(model_names, pred_alignment_files, split_files)):
         print(model_name)
-        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_file)
         discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s_split_%d.class' % (args.dataset, model_name, k)
         alignment_to_word_classes(pred_alignment_file, phone_corpus, split_file=split_file, word_class_file=discovered_word_file, include_null=True)
   else:
@@ -79,8 +79,7 @@ if 1 in tasks:
 
       # XXX
       for k in range(args.nfolds):
-        disc_clsfile = '%s/WDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
-
+        disc_clsfile = '%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
         wrd_path = pkg_resources.resource_filename(
                   pkg_resources.Requirement.parse('WDE'),
                               'WDE/share/%s_split_%d_word_units.wrd' % (args.dataset, k))
@@ -89,7 +88,6 @@ if 1 in tasks:
                               'WDE/share/%s_split_%d_phone_units.phn' % (args.dataset, k))
         gold = Gold(wrd_path=wrd_path, 
                     phn_path=phn_path) 
-
         discovered = Disc(disc_clsfile, gold) 
         print(model_name)
         grouping = Grouping(discovered)
@@ -144,7 +142,7 @@ if 1 in tasks:
     
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
-    disc_clsfiles = ['%s/WDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
+    disc_clsfiles = ['%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
 
     for model_name, disc_clsfile in zip(model_names, disc_clsfiles):
       discovered = Disc(disc_clsfile, gold) 

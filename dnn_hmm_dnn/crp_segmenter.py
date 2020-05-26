@@ -226,8 +226,8 @@ class CRPWordSegmenter:
     self.restaurant.save(outputDir)
              
 if __name__ == '__main__':
-  corpusFile = '../data/mscoco2k_force_align.txt'
-  outputDir = 'exp/may23_mscoco2k_force_align/'
+  corpusFile = '../data/mscoco20k_force_align.txt'
+  outputDir = 'exp/may26_mscoco20k_force_align/'
   if not os.path.isdir(outputDir):
     print('Create directory: ', outputDir)
     os.mkdir(outputDir) 

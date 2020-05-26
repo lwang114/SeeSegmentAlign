@@ -146,11 +146,11 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     aCorpusStr = []
     self.phonePrior = {}
     # XXX
-    i = 0
+    # i = 0
     for line in f:
-      # if i >= 30:
+      # if i > 30:
       #   break
-      i += 1
+      # i += 1
       aSen = line.strip().split()
       self.aCorpus.append(aSen)
       for phn in aSen:

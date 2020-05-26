@@ -6,6 +6,7 @@ import json
 import scipy.io.wavfile as wavfile
 import librosa
 from PIL import Image
+import argparse
 
 DEBUG = False
 END = '</s>'
@@ -202,6 +203,68 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
         else:
           word_units[image_concepts[prev_align_idx]].append('%s %d %d\n' % (pair_id, start, t + 1))
     
+  with open(word_class_file, 'w') as f:
+    for i_c, c in enumerate(word_units):
+      #print(i_c, c)
+      f.write('Class %d:\n' % i_c)
+      f.write(''.join(word_units[c]))
+      f.write('\n')
+
+def segmentation_to_word_classes(segmentation_file,
+                                 word_class_file='words.class',
+                                 phone_corpus_file = None,
+                                 split_file = None,
+                                 include_null = False):
+  with open(segmentation_file, 'r') as f:
+    segmentations = f.read().strip().split('\n')
+
+
+  test_indices = list(range(len(segmentations)))
+  if split_file:  
+    with open(split_file, 'r') as f:
+      test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
+  
+  if phone_corpus_file:
+    with open(phone_corpus_file, 'r') as f:
+      phone_corpus = f.read().strip().split('\n') 
+  word_units = {}
+  # XXX
+  for ex, segmentation in enumerate(segmentations):
+    if not ex in test_indices:
+      continue
+    
+    pair_id = 'pair_' + str(ex)  
+    print(pair_id)
+    start = 0
+    for t, seg in enumerate(segmentation.split()):
+      if not seg in word_units:
+        if phone_corpus_file and start + len(seg.split(',')) >= len(phone_corpus[ex].split()):
+          nPhones = len(phone_corpus[ex].split())
+          print('Sequence reaches the end of the ground truth', start + len(seg.split(',')), nPhones)
+          print(start, nPhones)
+          word_units[seg] = ['%s %d %d\n' % (pair_id, start, start + len(seg.split(',')))] 
+          break
+        word_units[seg] = ['%s %d %d\n' % (pair_id, start, start + len(seg.split(',')))]
+      else:
+        if phone_corpus_file and start + len(seg.split(',')) >= len(phone_corpus[ex].split()):
+          nPhones = len(phone_corpus[ex].split())
+          print('Sequence longer than the ground truth', start + len(seg.split(',')), nPhones)
+          print(start, nPhones)
+          word_units[seg].append('%s %d %d\n' % (pair_id, start, nPhones))
+          start += len(seg.split(','))
+          break
+        word_units[seg].append('%s %d %d\n' % (pair_id, start, start + len(seg.split(','))))
+      start += len(seg.split(','))
+
+    if phone_corpus_file:
+      nPhones = len(phone_corpus[ex].split())
+      if start < len(phone_corpus[ex].split()):
+        print('Sequence shorter than the ground truth', start, nPhones)
+        if NULL not in word_units:
+          word_units[NULL] = ['%s %d %d\n' % (pair_id, start, nPhones)]
+        else:
+          word_units[NULL].append('%s %d %d\n' % (pair_id, start, nPhones))
+
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):
       #print(i_c, c)
@@ -464,34 +527,21 @@ def extract_top_concept_segments(audio_cluster_file, feat2wav_file, wav_dir, ids
     _, _ = extract_concept_segments(clusters[c], feat2wav, wav_dir, ids_to_utterance_labels, out_dir=c_dir)
 
 if __name__ == '__main__':
-  '''
-  postproc = XNMTPostprocessor('../nmt/exp/feb28_phoneme_level_clustering/output/report/')
-  postproc.convert_alignment_file('../nmt/exp/feb28_phoneme_level_clustering/output/alignment.json')
-  alignment_to_cluster('../nmt/exp/feb28_phoneme_level_clustering/output/alignment.json', '../nmt/exp/feb28_phoneme_level_clustering/output/cluster.json')
-  postproc.convert_retrieval_file('../nmt/exp/mar19_phoneme_to_image_norm_over_time/output/phoneme_to_concept.hyp')
-  '''
-  alignment_file = "../smt/exp/june_24_mfcc_kmeans_mixture=3/flickr30k_pred_alignment.json"
-  src_feat2wavs_file = "../data/flickr30k/audio_level/flickr_mfcc_feat2wav.json" 
-  ref_feat2wavs_file = "../data/flickr30k/audio_level/flickr30k_gold_alignment.json_feat2wav.json"
-  out_file = "../smt/exp/june_24_mfcc_kmeans_mixture=3/pred_alignment_resample.json"
-  binary_boundary_file = "../comparison_models/exp/july_20_multimodal_kmeans/boundaries_multimodal-kmeans.npy"
-  frame_boundary_file = "../data/flickr30k/audio_level/frame_boundaries_semkmeans.npy"
-  txt_syl_segment_file = "../data/flickr30k/audio_level/syllable_boundaries.txt"
-  npy_syl_segment_file = "../data/flickr30k/audio_level/syllable_segmentations_osc.npy"
-  feat_type = "bn"
-  if feat_type == "bn":
-    landmark_file = "flickr_landmarks_mbn.npz" #"flickr_landmarks_osc_mbn.npz" #"../data/flickr30k/audio_level/flickr_landmarks.npz" #"flickr_landmarks_mbn.npz" #"../data/flickr30k/audio_level/flickr_landmarks.npz" 
-    feat2wavs_htk_file = "../data/flickr30k/audio_level/flickr30k_gold_alignment.json_feat2wav.json"  
-  elif feat_type == "mfcc":
-    landmark_file = "flickr_landmarks_osc.npz"
-    feat2wavs_htk_file = "../data/flickr30k/audio_level/flickr_mfcc_cmvn_htk_feat2wav.json"
-  audio_cluster_file = "../comparison_models/exp/aug1_mkmeans/pred_clusters.json"
-  ids_to_utterance_file = "../data/flickr30k/audio_level/ids_to_utterance_labels.json"
-  wav_dir = "/home/lwang114/data/flickr/flickr_audio/wavs/" 
-  gold_seg_file = "../data/flickr30k/audio_level/flickr30k_gold_segmentation_mbn.npy"
-  #"../data/flickr30k/audio_level/flickr30k_gold_segmentation_mfcc_htk.npy"
-  #convert_boundary_to_segmentation(binary_boundary_file, frame_boundary_file)
-  #resample_alignment(alignment_file, src_feat2wavs_file, ref_feat2wavs_file, out_file)
-  #convert_txt_to_npy_segment(txt_syl_segment_file, npy_syl_segment_file)
-  convert_sec_to_10ms_landmark(npy_syl_segment_file, feat2wavs_htk_file, landmark_file)
-  #convert_10ms_segmentation_to_landmark(gold_seg_file, ids_to_utterance_file, "flickr30k_gold_landmarks_mbn.npz")
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--exp_dir', type=str, default='./', help='Experimental directory containing the alignment files')
+  parser.add_argument('--dataset', choices=['mscoco2k', 'mscoco20k', 'flickr'])
+  args = parser.parse_args()
+  
+  tasks = [0]
+  if 0 in tasks:
+    model_name = 'crp'
+    exp_dir = args.exp_dir
+    dataset = args.dataset
+    segmentation_file = exp_dir + 'segmented_sentences.txt'
+    tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
+    for k in range(5): 
+      segmentation_to_word_classes(segmentation_file, 
+                                 word_class_file='%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, dataset, model_name, k),
+                                 phone_corpus_file = '../data/%s_phone_captions.txt' % args.dataset,
+                                 split_file = '%send-to-end_split_%d.txt' % (exp_dir, k),
+                                 include_null = True)

@@ -60,9 +60,15 @@ elif args.dataset == 'mscoco20k':
   dataDir = 'data/'
   phoneCaptionFile = dataDir + 'mscoco20k_phone_captions.txt' 
   if args.model_type == 'phone' or args.model_type == 'end-to-end': 
-    speechFeatureFile = dataDir + 'mscoco20k_phone_captions.txt'
+    if args.audio_feat_type == 'force_align':
+      speechFeatureFile = dataDir + 'mscoco20k_force_align.txt'
+    else:
+      speechFeatureFile = dataDir + 'mscoco20k_phone_captions.txt'
   elif args.model_type == 'cascade':
-    speechFeatureFile = dataDir + 'mscoco20k_phone_captions_segmented.txt'
+    if args.audio_feat_type == 'force_align':
+      speechFeatureFile = dataDir + 'mscoco20k_force_align_segmented.txt'
+    else:
+      speechFeatureFile = dataDir + 'mscoco20k_phone_captions_segmented.txt'
 
   imageConceptFile = dataDir + 'mscoco20k_image_captions.txt'
   if args.feat_type == 'synthetic':
@@ -133,7 +139,6 @@ if 1 in tasks:
   print('Start training the model ...')
   begin_time = time.time() 
   if nFolds > 1:
-    # XXX
     order = list(range(nExamples))
     random.shuffle(order)
     foldSize = int(nExamples / nFolds)
@@ -145,8 +150,9 @@ if 1 in tasks:
           else:
             f.write('0\n')
     print('Finish randomly spliting the data')
-      
-    for k in range(3):
+     
+    # XXX 
+    for k in range(2):
       nIters = 20
       if args.model_type == 'cascade' or args.model_type == 'phone':
         model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
