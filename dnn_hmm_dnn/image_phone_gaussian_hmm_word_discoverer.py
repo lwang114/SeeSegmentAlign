@@ -151,7 +151,6 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       self.mus = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
       #self.mus = 1. * np.random.normal(size=(self.nWords, self.imageFeatDim))
     print("Finish initialization after %0.3f s" % (time.time() - begin_time))
-    self.printUnimodalCluster(filePrefix=self.modelName)
   
   # TODO
   # Inputs:
@@ -676,23 +675,6 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     # Write to a .json file for evaluation
     with open(filePrefix+'.json', 'w') as f:
       json.dump(aligns, f, indent=4, sort_keys=True)             
-
-  def printUnimodalCluster(self, filePrefix):
-    f = open(filePrefix+'.txt', 'w')
-    cluster_infos = []
-    for i, (aSen, vSen) in enumerate(zip(self.aCorpus, self.vCorpus)):
-      clusterProbs = self.softmaxLayer(vSen)
-      clusters = np.argmax(clusterProbs, axis=1)
-      
-      cluster_info = {
-          'index': i,
-          'image_concepts': clusters.tolist(),
-          'cluster_probs': clusterProbs.tolist()
-        }
-      cluster_infos.append(cluster_info)
-    
-    with open(filePrefix+'.json', 'w') as f:
-      json.dump(cluster_infos, f, indent=4, sort_keys=True)
 
 if __name__ == '__main__':
   tasks = [2]

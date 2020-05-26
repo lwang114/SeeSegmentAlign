@@ -136,15 +136,15 @@ if 1 in tasks:
     # XXX
     order = list(range(nExamples))
     random.shuffle(order)
+    foldSize = int(nExamples / nFolds)
     for k in range(nFolds):
       with open(modelName+'_split_%d.txt' % k, 'w') as f:
         for o in order:
-          foldSize = int(nExamples / nFolds)
-          if o < k * foldSize and o >= (k - 1) * foldSize:
+          if o < (k + 1) * foldSize and o >= k * foldSize:
             f.write('1\n')
           else:
             f.write('0\n')
-      print('Finish randomly spliting the data')
+    print('Finish randomly spliting the data')
       
     for k in range(3):
       nIters = 20
@@ -152,7 +152,7 @@ if 1 in tasks:
         model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
       elif args.model_type == 'end-to-end':
         model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName+'_split_%d' % k, splitFile=modelName+'_split_%d.txt' % k)
-        nIters = 40
+        nIters = 20
       else:
         raise ValueError('Invalid Model Type')
       model.trainUsingEM(nIters, writeModel=True, debug=False)
@@ -162,7 +162,7 @@ if 1 in tasks:
       model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     elif args.model_type == 'end-to-end':
       model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
-      nIters = 100
+      nIters = 20 # XXX
     
     model.trainUsingEM(nIters, writeModel=True, debug=False)
     print('Take %.5s s to finish training the model !' % (time.time() - begin_time))

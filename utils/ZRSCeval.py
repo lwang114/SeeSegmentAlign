@@ -35,23 +35,24 @@ if 0 in tasks:
     concept2id_file = None
     gold_alignment_file = datapath + 'phoneme_level/%s30k_gold_alignment.json' % args.dataset
    
-  with open(args.exp_dir+'/model_names.txt', 'r') as f:
+  with open(args.exp_dir+'model_names.txt', 'r') as f:
     model_names = f.read().strip().split()
   
   if args.nfolds > 1:
     # XXX
     for k in range(args.nfolds):
-      pred_alignment_files = ['%s/%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
-      split_files = ['%s/%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
+      pred_alignment_files = ['%s%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
+      split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
 
       for i, (model_name, pred_alignment_file, split_file) in enumerate(zip(model_names, pred_alignment_files, split_files)):
+        print(model_name)
         alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_file)
         discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s_split_%d.class' % (args.dataset, model_name, k)
         alignment_to_word_classes(pred_alignment_file, phone_corpus, split_file=split_file, word_class_file=discovered_word_file, include_null=True)
   else:
-    alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (args.tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file)
+    alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file)
 
-    pred_alignment_files = ['%s/%s_split_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
+    pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
   
     for i, (model_name, pred_alignment_file) in enumerate(zip(model_names, pred_alignment_files)):
       discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name)
@@ -62,9 +63,9 @@ if 0 in tasks:
 #------------------------#
 if 1 in tasks:
   # XXX
-  # os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
   if args.nfolds > 1:
-    with open(args.exp_dir+'/model_names.txt', 'r') as f:
+    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
+    with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
     
     for model_name in model_names:
@@ -116,7 +117,10 @@ if 1 in tasks:
         token_type = TokenType(gold, discovered)
         token_type.compute_token_type()
         token_f1s[k] = 2 * np.maximum(token_type.precision[0], EPS) * np.maximum(token_type.recall[0], EPS) / np.maximum(token_type.precision[0] + token_type.recall[0], EPS)
-        type_f1s[k] = 2 * np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)
+        if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k': 
+          type_f1s[k] = np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1] / 2, EPS) # XXX the definition of class in mscoco double counts each concept
+        else:
+          type_f1s[k] = 2 * np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)
 
         print('Token type precision and recall: ', token_type.precision, token_type.recall)
         #print('Token type fscore: ', token_type.fscore)    
@@ -138,9 +142,9 @@ if 1 in tasks:
     gold = Gold(wrd_path=wrd_path, 
                   phn_path=phn_path) 
     
-    with open(args.exp_dir+'/model_names.txt', 'r') as f:
+    with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
-    disc_clsfiles = ['tdev2/WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name) for model_name in model_names]
+    disc_clsfiles = ['%s/WDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
 
     for model_name, disc_clsfile in zip(model_names, disc_clsfiles):
       discovered = Disc(disc_clsfile, gold) 
@@ -169,10 +173,13 @@ if 1 in tasks:
       print('Token type precision and recall: ', token_type.precision, token_type.recall)
       #print('Token type fscore: ', token_type.fscore)
 
-      with open('%s_scores.txt' % model_name, 'w') as f:
-        f.write('Grouping precision: %.5f, recall: %.5f\n' % (grouping.precision, grouping.recall))
-        f.write('Boundary precision: %.5f, recall: %.5f\n' % (boundary.precision, boundary.recall))
-        f.write('Token/type precision: %.5f %.5f, recall: %.5f %.5f\n' % (token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1]))
+      with open('%s_scores.txt' % (exp_dir + model_name), 'w') as f:
+        f.write('Grouping precision: %.5f, recall: %.5f, f1: %.5f\n' % (grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / (grouping.precision + grouping.recall + EPS)))
+        f.write('Boundary precision: %.5f, recall: %.5f, f1: %.5f\n' % (boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / (boundary.precision + boundary.recall + EPS)))
+        if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
+          f.write('Token/type precision: %.5f %.5f, recall: %.5f %.5f, f1: %.5f %.5f\n' % (token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1] / 2., EPS)))   # XXX the definition of class in mscoco double counts each concept 
+        else:
+          f.write('Token/type precision: %.5f %.5f, recall: %.5f %.5f, f1: %.5f %.5f\n' % (token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)))
         f.write('Coverage: %.5f\n' % coverage.coverage)
         f.write('ned: %.5f\n' % ned.ned)
 
@@ -220,7 +227,7 @@ if 2 in tasks:
     print('Token type precision and recall: ', token_type.precision, token_type.recall)
     #print('Token type fscore: ', token_type.fscore)
 
-    with open('%s_scores.txt' % model_name, 'w') as f:
+    with open('%s_scores.txt' % (args.exp_dir + model_name), 'w') as f:
       f.write('Grouping precision: %.5f, recall: %.5f\n' % (grouping.precision, grouping.recall))
       f.write('Boundary precision: %.5f, recall: %.5f\n' % (boundary.precision, boundary.recall))
       f.write('Token/type precision: %.5f %.5f, recall: %.5f %.5f\n' % (token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1]))

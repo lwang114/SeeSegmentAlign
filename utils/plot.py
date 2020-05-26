@@ -484,7 +484,7 @@ def plot_posterior_gap_curve(exp_dir):
   plt.savefig(exp_dir + 'posterior_gap_curves', loc='best')
 
 if __name__ == '__main__': 
-  tasks = [4]
+  tasks = [2]
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
   parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
@@ -565,7 +565,9 @@ if __name__ == '__main__':
     fig, ax = plt.subplots() 
     model_names_display = []
     for model_name in model_names:
-      pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
+      # XXX 
+      # pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
+      pred_json = '%s%s_split_0_alignment.json' % (args.exp_dir, model_name) 
       print(pred_json)
        
       if model_name.split()[0] == 'gaussian':
