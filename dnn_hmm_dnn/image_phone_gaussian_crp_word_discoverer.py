@@ -103,7 +103,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
   #          trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
   #   segmentations: a list containing time boundaries for each sentence, 
   #                 [[1, s_1^1, ..., T], [1, s_1^2, ..., T], ..., [1, s_1^D, ..., T]]
-  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=False, modelName='image_phone_crp'):
+  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=None, modelName='image_phone_crp'):
     self.modelName = modelName 
     self.alpha0 = modelConfigs.get('alpha_0', 1.0) # Concentration parameter for the Dirichlet prior
     self.hasNull = modelConfigs.get('has_null', False)
@@ -116,6 +116,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     self.initProbFile = modelConfigs.get('init_prob_file', None)
     self.transProbFile = modelConfigs.get('trans_prob_file', None)
     self.visualAnchorFile = modelConfigs.get('visual_anchor_file', None)
+    self.tableFilePrefix = modelConfigs.get('table_file_prefix', None)
     self.init = {}
     self.trans = {}                 
     self.lenProb = {}
@@ -215,6 +216,13 @@ class ImagePhoneGaussianCRPWordDiscoverer:
       self.mus = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
       #self.mus = 1. * np.random.normal(size=(self.nWords, self.imageFeatDim))
     print("Finish initialization after %0.3f s" % (time.time() - begin_time))
+    
+    if self.tableFilePrefix:
+      for k in range(self.nWords):
+        with open(self.tableFilePrefix + 'concept_%d_tables.txt' % k, 'r') as f:
+          for line in f:
+            parts = line.strip().split()
+            self.restaurants[k].seat_to(' '.join(parts[:-1]), float(parts[-1])) 
 
   def trainUsingEM(self, numIterations=20, writeModel=False, warmStart=False, convergenceEpsilon=0.01, printStatus=True, debug=False):
     self.initializeModel()
@@ -280,7 +288,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
         likelihood = self.computeLogLikelihood()
         likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
-        if epoch % 5 == 0:
+        if (epoch + 1) % 5 == 0:
           self.printModel(self.modelName)
           self.printAlignment(self.modelName+'_alignment', debug=False)     
         print('Epoch %d takes %.2f s to finish' % (epoch, time.time() - begin_time))
@@ -718,8 +726,8 @@ class ImagePhoneGaussianCRPWordDiscoverer:
       for t in range(T):
         if alignment[t] == i:
           scores[i] *= prob_x_t_given_z[t]
-    return np.argmax(scores, axis=1).tolist(), scores.tolist()
-    
+    return np.argmax(scores, axis=1).tolist(), scores.tolist() 
+      
   def printModel(self, fileName):
     initFile = open(fileName+'_initialprobs.txt', 'w')
     for nState in sorted(self.lenProb):
