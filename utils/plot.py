@@ -454,6 +454,75 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
   else:
     return f1_scores
 
+# TODO
+def plot_substring_histogram(exp_dir, gold_file, concept2idx_file, draw_plot=False, out_file=None):
+  for datafile in os.listdir(exp_dir):
+    if datafile.split('_')[-1] != 'alignment.txt' and datafile.split('_')[-1] != 'sentences.txt':
+      continue
+    print(datafile)
+    model_name = datafile.split('_')[0] 
+    pred_file = datafile
+    # Load the predicted alignment, gold alignment and concept dictionary 
+    with open(exp_dir + pred_file, 'r') as f:
+      if pred_file.split('_')[-1] == 'alignment.txt':
+        pred = f.read().strip().split('\n')[::3]
+      else:
+        pred = f.read().strip().split('\n')
+
+    print(len(pred))
+         
+    with open(gold_file, 'r') as f:
+      gold = json.load(f)
+
+    with open(concept2idx_file, 'r') as f:
+      concept2idx = json.load(f)
+
+    concept_names = [c for c in concept2idx.keys()]
+    n_c = len(concept_names)
+
+    accs = np.zeros((n_c,))
+    substring_counts = {}
+
+    for g in gold:
+      caption = g['caption']  
+      g_ali = g['alignment'] + [-1] 
+      word = []
+      for t, (a_g, a_g_next) in enumerate(zip(g_ali[:-1], g_ali[1:])):
+        if a_g != a_g_next:
+          substring_counts[','.join(word)] = {}   
+          word = [caption[a_g]]
+        else:
+          word.append(caption[a_g])
+
+    for p, g in zip(pred, gold):
+      concepts = g['image_concepts']
+      concepts = [str(concept) for concept in concepts]
+      # Skip if the concept is not in the current image-caption pair 
+      for seg in p.split():
+        for c in substring_counts:
+          if str(c) not in concepts:
+            continue
+
+          if seg in c:
+            if seg not in substring_counts[c]:
+              substring_counts[c][seg] = 1        
+            else:
+              substring_counts[c][seg] += 1
+    
+    with open('%s%s_substring_counts.json' % (exp_dir, model_name), 'w') as f:
+      json.dump(substring_counts, f, indent=4, sort_keys=True)
+
+    with open('%s%s_sorted_substrings.txt' % (exp_dir, model_name), 'w') as f:
+      for concept, counts in substring_counts.items():
+        f.write('%s: ' % concept)
+        top_substrings = sorted(counts, key=lambda x:counts[x], reverse=True)
+        for top_str in top_substrings:
+          f.write('%s(%d)' % (top_str, counts[top_str]))
+        f.write('\n')
+
+  # TODO
+  # Plot the histogram
+
 def plot_likelihood_curve(exp_dir):
   likelihood_data = {'Number of Iterations':[],\
                      'Average Log Likelihood':[],\
@@ -515,10 +584,11 @@ def plot_posterior_gap_curve(exp_dir):
   plt.close()
 
 if __name__ == '__main__': 
-  tasks = [2]
+  tasks = [5]
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
   parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
+  parser.add_argument('--nfolds', '-nf', type=int, default=1)
   args = parser.parse_args()
 
   if args.dataset == 'flickr':
@@ -547,11 +617,19 @@ if __name__ == '__main__':
     top_classes, top_freqs = plot_word_len_distribution(gold_json, draw_plot=False, phone_level=True)
     plt.plot(top_classes[:50], top_freqs[:50])
 
-    for model_name in model_names:
-      pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
-      print(model_name)
-      top_classes, top_freqs = plot_word_len_distribution(pred_json, draw_plot=False)
-      plt.plot(top_classes[:50], top_freqs[:50])      
+    if args.nfolds > 1:
+      for k in range(args.nfolds):
+        for model_name in model_names:
+          pred_json = '%s_%s_%d_pred_alignment.json' % (args.exp_dir + args.dataset, model_name, k) 
+          print(model_name)
+          top_classes, top_freqs = plot_word_len_distribution(pred_json, draw_plot=False)
+          plt.plot(top_classes[:50], top_freqs[:50])      
+    else:
+      for model_name in model_names:
+        pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
+        print(model_name)
+        top_classes, top_freqs = plot_word_len_distribution(pred_json, draw_plot=False)
+        plt.plot(top_classes[:50], top_freqs[:50])      
 
     ax.set_xticks(np.arange(0, max(top_classes[:50]), 5))
     for tick in ax.get_xticklabels():
@@ -656,9 +734,13 @@ if __name__ == '__main__':
     with open('top_%d_concept_names.txt' % k, 'w') as f:
       f.write('\n'.join(top_classes))
   #-----------------------------------#
-  # Log Likelihood and Posterior Gap #
+  # Log Likelihood and Posterior Gap  #
   #-----------------------------------#
   if 4 in tasks:
     plot_likelihood_curve(args.exp_dir)
     plot_posterior_gap_curve(args.exp_dir)
-
+  #---------------------------------------------------------#
+  # Histogram of word length vs boundary exact match scores #
+  #---------------------------------------------------------#
+  if 5 in tasks:
+    plot_substring_histogram(args.exp_dir, gold_json, concept2idx_file, draw_plot=False, out_file=None)

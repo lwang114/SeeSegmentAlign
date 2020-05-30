@@ -1,4 +1,4 @@
-# Author: David Harwath
+# Modified from https://github.com/dharwath/DAVEnet-pytorch.git
 import argparse
 import os
 import pickle

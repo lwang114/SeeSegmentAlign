@@ -147,11 +147,11 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     aCorpusStr = []
     self.phonePrior = {}
     # XXX
-    # i = 0
+    i = 0
     for line in f:
-      # if i > 30:
+      # if i > 300:
       #   break
-      # i += 1
+      i += 1
       aSen = line.strip().split()
       self.aCorpus.append(aSen)
       for phn in aSen:
@@ -219,7 +219,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     
     if self.tableFilePrefix:
       for k in range(self.nWords):
-        with open(self.tableFilePrefix + 'concept_%d_tables.txt' % k, 'r') as f:
+        with open(self.tableFilePrefix + '_concept_%d_tables.txt' % k, 'r') as f:
           for line in f:
             parts = line.strip().split()
             self.restaurants[k].seat_to(' '.join(parts[:-1]), float(parts[-1])) 

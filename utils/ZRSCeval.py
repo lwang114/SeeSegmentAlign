@@ -16,7 +16,7 @@ parser.add_argument('--dataset', choices=['mscoco2k', 'mscoco20k', 'flickr'])
 parser.add_argument('--nfolds', type=int, default=1)
 args = parser.parse_args()
 
-tasks = [1]
+tasks = [0, 1]
 tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
 #--------------------------#
 # Extract Discovered Words #
@@ -171,7 +171,7 @@ if 1 in tasks:
       print('Token type precision and recall: ', token_type.precision, token_type.recall)
       #print('Token type fscore: ', token_type.fscore)
 
-      with open('%s_scores.txt' % (exp_dir + model_name), 'w') as f:
+      with open('%s_scores.txt' % (args.exp_dir + model_name), 'w') as f:
         f.write('Grouping precision: %.5f, recall: %.5f, f1: %.5f\n' % (grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / (grouping.precision + grouping.recall + EPS)))
         f.write('Boundary precision: %.5f, recall: %.5f, f1: %.5f\n' % (boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / (boundary.precision + boundary.recall + EPS)))
         if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':

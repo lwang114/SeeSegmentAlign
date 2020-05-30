@@ -1,4 +1,4 @@
-# Author: David Harwath
+# Modified from https://github.com/dharwath/DAVEnet-pytorch.git
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -1,14 +1,17 @@
 from image_phone_gaussian_crp_word_discoverer import *
+import os
 
 class MultimodalCRPRetriever:
   def __init__(self, speechFeatureFile, imageFeatureFile, splitFile, modelConfigs, modelName='multimodal_crp'):
     self.modelName = modelName
     self.aligner = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=splitFile)
+    self.aligner.initializeModel()
     self.img_database = self.aligner.vCorpus
     self.phn_database = self.aligner.aCorpus
     with open(splitFile, 'r') as f:
       lines = f.read().strip().split('\n')
-      self.testIndices = [idx for idx, line in enumerate(lines) if int(idx)]
+      # XXX
+      self.testIndices = [idx for idx, line in enumerate(lines) if int(line)]
 
   def train(self, numIterations=20, writeModel=False):
     self.aligner.trainUsingEM(numIterations, writeModel=True)
@@ -21,37 +24,42 @@ class MultimodalCRPRetriever:
   # Outputs:
   # -------
   #   scores: Relevance scores of the documents
-  def retrieve(self, query, imageSearch=True)    
+  def retrieve(self, query, imageSearch=True): 
     scores = []
     if imageSearch:
       for idx in self.testIndices:
         vSen = self.img_database[idx] 
-        _, segmentation = self.backwardSample(vSen, query, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
-        _, score = self.aligner.align(query, vSen, segmentation) # Compute the conditional likelihood of the caption given each image feature
-        scores.append(score)
+        alphas = self.aligner.forward(vSen, query) # Forward filtering
+        # _, segmentation = self.aligner.backwardSample(vSen, query, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
+        # _, score = self.aligner.align(query, vSen, segmentation) # Compute the conditional likelihood of the caption given each image feature
+        scores.append(np.sum(alphas[-1]))
     else:
       for idx in self.testIndices:
         aSen = self.phn_database[idx]
-        _, segmentation = self.backwardSample(query, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
-        _, score = self.aligner.align(aSen, query, segmentation) # Compute the conditional likelihood of the caption given each image feature
-        scores.append(score)
+        alphas = self.aligner.forward(query, aSen) # Forward filtering
+        # _, segmentation = self.aligner.backwardSample(query, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
+        # _, score = self.aligner.align(aSen, query, segmentation) # Compute the conditional likelihood of the caption given each image feature
+        scores.append(np.sum(alphas[-1]))
 
     # kbest_indices = [self.testIndices[i] for i in sorted(list(range(len(scores))), key=lambda x:scores[x], reverse=True)[:kbest]]
     return scores
     
   def retrieve_all(self):
     n = len(self.testIndices)
+    print('Size of the database: ', n)
     scores = np.zeros((n, n))
-    for aIdx in self.testIndices:
+    for i, aIdx in enumerate(self.testIndices):
+      begin_time = time.time()
       aSen = self.phn_database[aIdx]
+      print('Runtime for retrieval per query: ', time.time() - begin_time)
       score_i = self.retrieve(aSen)
-      scores[aIdx] = np.asarray(score_i)
+      scores[i] = np.asarray(score_i)
     return scores 
     
   def evaluate(self, kbest=10, outFile=None):
     scores = self.retrieve_all()
-    I_kbest = np.argsort(scores, axis=1)[-kbest:][::-1]
-    P_kbest = np.argsort(scores, axis=0)[-kbest:][::-1]
+    I_kbest = np.argsort(-scores, axis=1)[:, :kbest]
+    P_kbest = np.argsort(-scores, axis=0)[:kbest]
     n = len(scores)
     I_recall_at_1 = 0.
     I_recall_at_5 = 0.
@@ -101,19 +109,15 @@ class MultimodalCRPRetriever:
     fp2 = open(outFile + '_image_search.txt.readable', 'w')
     for i in range(n):
       I_kbest_str = ' '.join([str(idx) for idx in I_kbest[i]])
-      imgcs = '\n'.join([' '.join(self.imgc_database[i]) for i in I_kbest[i]])
-        
       fp1.write(I_kbest_str + '\n')
-      fp2.write(imgcs + '\n')
     fp1.close()
     fp2.close() 
 
     fp1 = open(outFile + '_captioning.txt', 'w')
     fp2 = open(outFile + '_captioning.txt.readable', 'w')
     for i in range(n):
-      P_kbest_str = ' '.join([str(idx) for idx in P_kbest[i]])
-      phns = '\n'.join([' '.join(self.phn_database[i]) for i in P_kbest[i]])
-        
+      P_kbest_str = ' '.join([str(idx) for idx in P_kbest[:, i]])
+      phns = '\n'.join([' '.join(self.phn_database[self.testIndices[idx]]) for idx in P_kbest[:, i]])
       fp1.write(P_kbest_str + '\n')
       fp2.write(phns + '\n')
     fp1.close()
