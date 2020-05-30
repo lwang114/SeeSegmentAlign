@@ -3,7 +3,7 @@ from dnn_hmm_dnn.image_phone_gaussian_crp_word_discoverer import *
 # from clda.image_phone_word_discoverer import *
 from utils.clusteval import *
 from utils.postprocess import *
-from utils.plot import *
+# from utils.plot import *
 import argparse
 import shutil
 import time

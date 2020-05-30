@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 class ImagePhoneCaptionDataset(Dataset):
-  def __init__(self, image_feat_file, phone_feat_file, feat_conf=None):
+  def __init__(self, image_feat_file, phone_feat_file, phone2idx_file, feat_conf=None):
     # Inputs:
     # ------  
     #   image_feat_file: .npz file with the format {'arr_1': y_1, ..., 'arr_n': y_n}, where y_i is an N x ndim array  
@@ -19,41 +19,41 @@ class ImagePhoneCaptionDataset(Dataset):
     # Outputs:
     # -------
     #   None
-    self.max_nregions = feat_configs.get('max_num_regions', 5)
-    self.max_nphones = feat_configs.get('max_num_phones', 100)
-    self.phone2idx = {}
+    self.max_nregions = feat_conf.get('max_num_regions', 5)
+    self.max_nphones = feat_conf.get('max_num_phones', 100)
+    with open(phone2idx_file, 'r') as f:
+      self.phone2idx = json.load(f)
     self.phone_feats = [] 
     self.nphones = []
-    n_types = 0
+    n_types = len(self.phone2idx)
 
     image_feat_npz = np.load(image_feat_file)
     self.image_feats = [image_feat_npz[k].T for k in sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))]  
 
     # Load the phone captions
-    phone_feat_strs = []
     with open(phone_feat_file, 'r') as f:
       i = 0
+      # XXX
       for line in f:
         a_sent = line.strip().split()
-        if len(aSen) == 0:
+        if len(a_sent) == 0:
           print('Empty caption', i)
         i += 1
-        phone_feat_strs.append(a_sent)
+
+        a_feat = np.zeros((n_types, self.max_nphones))
         for phn in a_sent:
-          if phn.lower() not in self.phone2idx:
-            self.phone2idx[phn.lower()] = n_types
-            n_types += 1
+          for t, phn in enumerate(a_sent):
+            if t >= self.max_nphones:
+              break
+            a_feat[self.phone2idx[phn.lower()], t] = 1.
+        self.phone_feats.append(a_feat)
         self.nphones.append(min(len(a_sent), self.max_nphones))
-
-    for a_sent in phone_feat_strs:
-      a_feat = np.zeros((n_types, self.max_nphones))
-      for t, phn in enumerate(a_sent):
-        if t >= self.max_nphones:
-          break
-        a_feat[self.phone2idx[phn.lower()], t] = 1.
-      self.phone_feats.append(a_feat)
-
+    
+    print(len(self.phone_feats), len(self.image_feats))
     assert len(self.phone_feats) == len(self.image_feats) 
+    print('---- Dataset Summary ----')
+    print('Number of examples: ', len(self.phone_feats))
+    print('Number of phone types: ', n_types)
 
   def __len__(self):
     return len(self.phone_feats)
@@ -65,14 +65,13 @@ class ImagePhoneCaptionDataset(Dataset):
     image_feat = self.image_feats[idx]
     nregions = min(len(image_feat), self.max_nregions)
     image_feat = self.convert_to_fixed_length(image_feat)
-    
-    return torch.FloatTensor(phone_feat[idx]), torch.FloatTensor(image_feat), nphones[idx], nregions
+    return torch.FloatTensor(self.phone_feats[idx]), torch.FloatTensor(image_feat), self.nphones[idx], nregions
   
   def convert_to_fixed_length(self, image_feat):
-    N = image_feat.shape[0]
-    pad = abs(self.max_nregions - T)
-    if T < self.max_nregions:
+    N = image_feat.shape[-1]
+    pad = abs(self.max_nregions - N)
+    if N < self.max_nregions:
       image_feat = np.pad(image_feat, ((0, 0), (0, pad)), 'constant', constant_values=(0))
-    elif T > self.max_nregions:
+    elif N > self.max_nregions:
       image_feat = image_feat[:, :-pad]
     return image_feat

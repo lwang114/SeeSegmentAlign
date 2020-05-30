@@ -85,6 +85,7 @@ class VGG16(nn.Module):
 
 class NoOpEncoder(nn.Module):
     def __init__(self, embedding_dim=1024, pretrained=False):
+      super(NoOpEncoder, self).__init__()
       self.embedding_dim=embedding_dim
         
     def forward(self, x):

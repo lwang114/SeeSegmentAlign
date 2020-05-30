@@ -78,12 +78,12 @@ def train(audio_model, image_model, train_loader, test_loader, args):
 
     audio_model.train()
     image_model.train()
-    while True:
+    while epoch < args.n_epochs:
         adjust_learning_rate(args.lr, args.lr_decay, optimizer, epoch)
         end_time = time.time()
         audio_model.train()
         image_model.train()
-        for i, (image_input, audio_input, nphones, nregions) in enumerate(train_loader):
+        for i, (audio_input, image_input, nphones, nregions) in enumerate(train_loader):
             # measure data loading time
             data_time.update(time.time() - end_time)
             B = audio_input.size(0)
@@ -94,13 +94,14 @@ def train(audio_model, image_model, train_loader, test_loader, args):
             optimizer.zero_grad()
 
             audio_output = audio_model(audio_input)
-            image_output = image_model(image_input)
+            image_output = image_model(image_input).unsqueeze(-1) # Make the image output 4D
 
             pooling_ratio = round(audio_input.size(-1) / audio_output.size(-1))
-            nframes.div_(pooling_ratio)
+            nphones.div_(pooling_ratio)
 
+            # TODO
             loss = sampled_margin_rank_loss(image_output, audio_output,
-                nframes, margin=args.margin, simtype=args.simtype)
+                nphones, nregions=nregions, margin=args.margin, simtype=args.simtype)
 
             loss.backward()
             optimizer.step()
@@ -108,21 +109,20 @@ def train(audio_model, image_model, train_loader, test_loader, args):
             # record loss
             loss_meter.update(loss.item(), B)
             batch_time.update(time.time() - end_time)
-
-            if global_step % args.n_print_steps == 0 and global_step != 0:
-                print('Epoch: [{0}][{1}/{2}]\t'
+            global_step += 1
+            # if global_step % args.n_print_steps == 0 and global_step != 0: 
+        print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss total {loss_meter.val:.4f} ({loss_meter.avg:.4f})'.format(
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss_meter=loss_meter))
-                if np.isnan(loss_meter.avg):
-                    print("training diverged...")
-                    return
+        end_time = time.time()
 
-            end_time = time.time()
-            global_step += 1
-
+        if np.isnan(loss_meter.avg):
+            print("training diverged...")
+            return
+        
         recalls = validate(audio_model, image_model, test_loader, args)
         
         avg_acc = (recalls['A_r10'] + recalls['I_r10']) / 2
@@ -161,13 +161,14 @@ def validate(audio_model, image_model, val_loader, args):
     I_embeddings = [] 
     A_embeddings = [] 
     frame_counts = []
+    region_counts = []
     with torch.no_grad():
-        for i, (image_input, audio_input, nframes) in enumerate(val_loader):
+        for i, (audio_input, image_input, nphones, nregions) in enumerate(val_loader):
             image_input = image_input.to(device)
             audio_input = audio_input.to(device)
 
             # compute output
-            image_output = image_model(image_input)
+            image_output = image_model(image_input).unsqueeze(-1) # Make the image output 4D
             audio_output = audio_model(audio_input)
 
             image_output = image_output.to('cpu').detach()
@@ -177,18 +178,19 @@ def validate(audio_model, image_model, val_loader, args):
             A_embeddings.append(audio_output)
             
             pooling_ratio = round(audio_input.size(-1) / audio_output.size(-1))
-            nframes.div_(pooling_ratio)
+            nphones.div_(pooling_ratio)
 
-            frame_counts.append(nframes.cpu())
+            frame_counts.append(nphones.cpu())
+            region_counts.append(nregions.cpu())
 
             batch_time.update(time.time() - end)
             end = time.time()
 
         image_output = torch.cat(I_embeddings)
         audio_output = torch.cat(A_embeddings)
-        nframes = torch.cat(frame_counts)
-
-        recalls = calc_recalls(image_output, audio_output, nframes, simtype=args.simtype)
+        nphones = torch.cat(frame_counts)
+        nregions = torch.cat(region_counts)
+        recalls = calc_recalls(image_output, audio_output, nphones, nregions=nregions, simtype=args.simtype)
         A_r10 = recalls['A_r10']
         I_r10 = recalls['I_r10']
         A_r5 = recalls['A_r5']

@@ -34,14 +34,13 @@ class Davenet(nn.Module):
 
 class DavenetSmall(nn.Module):
     def __init__(self, input_dim, embedding_dim=1024):
-        super(Davenet, self).__init__()
+        super(DavenetSmall, self).__init__()
         self.embedding_dim = embedding_dim
         self.batchnorm1 = nn.BatchNorm2d(1)
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=(input_dim, 5), stride=(1,1), padding=(0,2))
-
+        self.conv1 = nn.Conv2d(1, 64, kernel_size=(input_dim, 3), stride=(1,1), padding=(0,2))
         # self.conv1 = nn.Conv2d(1, 128, kernel_size=(40,1), stride=(1,1), padding=(0,0))
-        self.conv2 = nn.Conv2d(64, 256, kernel_size=(1,5), stride=(1,1), padding=(0,2))
-        self.conv3 = nn.Conv2d(256, 512, kernel_size=(1,5), stride=(1,1), padding=(0,2))
+        self.conv2 = nn.Conv2d(64, 256, kernel_size=(1,3), stride=(1,1), padding=(0,1))
+        self.conv3 = nn.Conv2d(256, 512, kernel_size=(1,3), stride=(1,1), padding=(0,2))
         self.pool = nn.MaxPool2d(kernel_size=(1,3), stride=(1,2),padding=(0,1))
 
     def forward(self, x):
@@ -53,5 +52,4 @@ class DavenetSmall(nn.Module):
         x = self.pool(x)
         x = F.relu(self.conv3(x))
         x = x.squeeze(2)
-        print(x.size())
         return x
