@@ -48,7 +48,7 @@ transform = transforms.Compose(
    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
 )
 print(args.exp_dir)
-tasks = [1, 3]
+tasks = [3]
 
 if args.dataset == 'mscoco_130k' or args.dataset == 'mscoco_2k':
   data_path = '/home/lwang114/data/mscoco/val2014/'
@@ -227,7 +227,7 @@ if 3 in tasks:
   i_new = 0
   prev_img_id = ''
   for line in f:
-    img_id = line.split()[0].split('_')[0]
+    img_id = line.split()[0]
     label = line.split()[-1]
     if img_id != prev_img_id:
       new_image_feats['arr_' + str(i_new)] = []
