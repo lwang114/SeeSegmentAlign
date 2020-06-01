@@ -132,7 +132,8 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
+    print(len(self.vCorpus[0].shape))
     
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
@@ -149,8 +150,8 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     # XXX
     i = 0
     for line in f:
-      # if i > 300:
-      #   break
+      if i > 30:
+        break
       i += 1
       aSen = line.strip().split()
       self.aCorpus.append(aSen)
@@ -617,9 +618,6 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
   # Compute translation length probabilities q(m|n)
   def computeTranslationLengthProbabilities(self, smoothing=None):
-      # Implement this method
-      #pass        
-      #if DEBUG:
       #  print(len(self.tCorpus))
       for ts, fs in zip(self.vCorpus, self.aCorpus):
         # len of ts contains the NULL symbol
