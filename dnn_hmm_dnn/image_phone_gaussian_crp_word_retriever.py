@@ -48,16 +48,18 @@ class MultimodalCRPRetriever:
     n = len(self.testIndices)
     print('Size of the database: ', n)
     scores = np.zeros((n, n))
+    begin_time = time.time()
     for i, aIdx in enumerate(self.testIndices):
-      begin_time = time.time()
       aSen = self.phn_database[aIdx]
-      print('Runtime for retrieval per query: ', time.time() - begin_time)
       score_i = self.retrieve(aSen)
       scores[i] = np.asarray(score_i)
+      if (i + 1) % 10 == 0:
+        print('Takes %.2f to retrieve %d query' % (time.time() - begin_time, i + 1))
+        self.evaluate(scores[:i+1], outFile='tmp')
     return scores 
-    
-  def evaluate(self, kbest=10, outFile=None):
-    scores = self.retrieve_all()
+  
+  def evaluate(self, scores, kbest=10, outFile=''):
+    # scores = self.retrieve_all() # XXX
     I_kbest = np.argsort(-scores, axis=1)[:, :kbest]
     P_kbest = np.argsort(-scores, axis=0)[:kbest]
     n = len(scores)
@@ -118,31 +120,38 @@ class MultimodalCRPRetriever:
     for i in range(n):
       P_kbest_str = ' '.join([str(idx) for idx in P_kbest[:, i]])
       phns = '\n'.join([' '.join(self.phn_database[self.testIndices[idx]]) for idx in P_kbest[:, i]])
-      fp1.write(P_kbest_str + '\n')
-      fp2.write(phns + '\n')
+      fp1.write(P_kbest_str + '\n\n')
+      fp2.write(phns + '\n\n')
     fp1.close()
     fp2.close()  
 
 if __name__ == '__main__':
-  speechFeatureFile = '../data/mscoco20k_phone_captions.txt'
-  imageFeatureFile = '../data/mscoco20k_res34_embed512dim.npz'  
-  splitFile = '../data/mscoco20k_split_0_retrieval.txt'
-  modelDir = 'exp/mscoco20k_end-to-end_res34_ground_truth_momentum0.0_lr0.10000_width1.000_alpha0_1.000_nconcepts65_may23/end-to-end_split_0'
-  expDir = 'exp/may28_mscoco20k_retrieval/'
+  speechFeatureFile = '../data/flickr30k_captions_phones.txt'
+  # 'mscoco20k_phone_captions.txt'
+  imageFeatureFile = '../data/flickr30k_res34_embeds.npz' 
+  # '../data/mscoco20k_res34_embed512dim.npz'  
+  splitFile = '../data/flickr30k_captions_split.txt'
+  # '../data/mscoco20k_split_0_retrieval.txt'
+  # modelDir = 'exp/flickr_end-to-end_res34_ground_truth_momentum0.0_lr0.10000_width1.000_alpha0_1.000_nconcepts80_may31/end-to-end' 
+  #'exp/mscoco20k_end-to-end_res34_ground_truth_momentum0.0_lr0.10000_width1.000_alpha0_1.000_nconcepts65_may23/end-to-end_split_0'
+  expDir = 'exp/may31_flickr30k_retrieval_split/'
   if not os.path.isdir(expDir):
     print('Create a new experiment directory: ', expDir)
     os.mkdir(expDir)
 
-  # TODO
+  # XXX
   modelConfigs = {'has_null': False,\
-                  'n_words': 65,\
+                  'n_words': 80,\
                   'learning_rate': 0.1,\
-                  'alpha_0': 1.,\
-                  'init_prob_file': modelDir + '_initialprobs.txt',\
-                  'trans_prob_file': modelDir + '_transitionprobs.txt',\
-                  'visual_anchor_file': modelDir + '_visualanchors.npy',\
-                  'table_file_prefix': modelDir   
-                  }
-  modelNames = 'multimodal_crp'
+                  'alpha_0': 1.}
+                  #,\
+                  # 'init_prob_file': modelDir + '_initialprobs.txt',\
+                  # 'trans_prob_file': modelDir + '_transitionprobs.txt',\
+                  # 'visual_anchor_file': modelDir + '_visualanchors.npy',\
+                  # 'table_file_prefix': modelDir   
+                  # }
+  modelNames = expDir + 'multimodal_crp'
   retriever = MultimodalCRPRetriever(speechFeatureFile, imageFeatureFile, splitFile, modelConfigs, modelNames)
-  retriever.evaluate(outFile=modelNames)
+  retriever.train()
+  scores = retriever.retrieve_all()
+  retriever.evaluate(scores, outFile=modelNames)
