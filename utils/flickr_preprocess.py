@@ -250,6 +250,40 @@ class Flickr_Preprocessor(object):
     with open('failed_words.txt', 'w') as f:
       f.write('\n'.join(failed_words))
 
+  def extract_word_to_image_map(self, out_file='word2image.json'):
+    f_ins = open(self.instance_file, 'r')
+    word2img = {}
+    word2freq = {}
+    i = 0
+    for line in f_ins:
+      # XXX 
+      # if i >= 20:
+      #   break
+      i += 1
+      parts = line.strip().split()
+      img_id = parts[0]
+      phrase = parts[1:-4]
+      bbox = parts[-4:]
+
+      pos = nltk.pos_tag(phrase)[::-1]
+      print(i, img_id)
+      for w in pos[::-1]:
+        if w[1][0] == 'N' and not w[0] in PUNCT:
+          word = self.lemmatizer.lemmatize(w[0]).lower() 
+          if not word in word2img:
+            word2img[word] = [[img_id, bbox]]
+            word2freq[word] = 1
+          else:
+            word2img[word].append([img_id, bbox]) 
+            word2freq[word] += 1
+    f_ins.close()
+    
+    with open(out_file, 'w') as f:
+      json.dump(word2img, f, indent=4, sort_keys=True)
+    
+    with open(out_file.split('.')[0] + '_frequency.json', 'w') as f:
+      json.dump(word2freq, f, indent=4, sort_keys=True)
+
   def create_gold_alignment(self, data_file, out_file='flickr30k_gold_alignment.json'):    
     with open(data_file, 'r') as f:
       data_info = json.load(f)
@@ -323,6 +357,7 @@ class Flickr_Preprocessor(object):
         word_caption = []
         phone_caption = []
         for i_phr, phrase in enumerate(phrases):
+          noun = phrase
           for word in phrase[0]:
             word = self.lemmatizer.lemmatize(word.lower())
             if word in self.stopwords or word in STOP or word in PUNCT or img_concepts[i_phr] == NONVISUAL:
@@ -343,7 +378,38 @@ class Flickr_Preprocessor(object):
           
         fw.write(' '.join(word_caption)+'\n')
         fp.write(' '.join(phone_caption)+'\n')   
-  
+   
+  def create_concept_captions(self, data_file, word2concept_file, word_freq_file=None, out_file='flickr30k_concepts'):
+      with open(data_file, 'r') as f:
+        data_info = json.load(f)
+      
+      with open(word2concept_file, 'r') as f:
+        w2c = json.load(f)
+
+      if word_freq_file:
+        with open(word_freq_file, 'r') as f:
+          word_freqs = json.load(f) 
+          top_words = sorted(word_freqs, key=lambda x:word_freqs[x], reverse=True)[:topk_vocab]
+
+      with open(out_file+'.txt', 'w') as fw: 
+        for datum_info in data_info:
+          concepts = []
+          phrases = datum_info['phrases']
+          print('example %d' % i)
+          for i_phr, phrase in enumerate(phrases):
+            pos = nltk.pos_tag(phrase[0])[::-1]
+            for w in pos:
+              if w[1][0] == 'N':
+                word = self.lemmatizer.lemmatize(w[0]).lower()
+              if word in self.stopwords or word in STOP or word in PUNCT or img_concepts[i_phr] == NONVISUAL:
+                continue 
+              print(word)              
+              if word_freq_file:
+                if not word in top_words: continue
+            concepts.append(w2c[word])
+          fw.write(' '.join(concepts))
+          fw.write('\n')
+   
   def train_test_split(self, split_file, out_file='flickr30k_phrase'):
     if split_file:
       f_split = open(split_file, 'r')
@@ -463,7 +529,7 @@ def compute_word_similarity(word_senses1, word_senses2, sim_type='wup+res', pos=
   return max(scores)
 
 if __name__ == '__main__':
-  tasks = [3] 
+  tasks = [7] 
   preproc = Flickr_Preprocessor('../data/flickr30k/flickr30k_phrases_bboxes.txt', '../data/flickr30k/flickr30k_phrase_types.txt', None, concept_class_file='../data/flickr30k/flickr_classnames_original.txt')
   data_file = '../data/flickr30k/flickr30k_info.json'
 
@@ -479,3 +545,7 @@ if __name__ == '__main__':
     preproc.create_gold_alignment(data_file)
   if 5 in tasks:
     preproc.cleanup_datafile(data_file)
+  if 6 in tasks:
+    preproc.create_concept_captions(self, data_file, word2concept_file, word_freq_file=None)
+  if 7 in tasks:
+    preproc.extract_word_to_image_map()
