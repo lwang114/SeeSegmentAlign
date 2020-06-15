@@ -33,14 +33,18 @@ class MultimodalAdaGramPhoneDiscoverer:
   def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=None, modelName='image_phone_crp'):
     self.modelName = modelName 
     self.alpha0 = modelConfigs.get('alpha_0', 1.0) # Concentration parameter for the Dirichlet prior
-    self.restaurants = [Restaurant(self.alpha0) for _ in range(self.nWords)]
-    self.components = None
     self.hasNull = modelConfigs.get('has_null', False)
     self.nWords = modelConfigs.get('n_words', 66)
     self.nPhones = modelConfigs.get('n_phones', 200)
+    self.nSliceMin = modelConfigs.get('n_slices_min', 1)
+    self.nSliceMax = modelConfigs.get('n_slices_max', 8)
     self.width = modelConfigs.get('width', 1.) 
     self.momentum = modelConfigs.get('momentum', 0.)
     self.lr = modelConfigs.get('learning_rate', 0.1)
+    self.prior = None
+    self.restaurants = [Restaurant(self.alpha0) for _ in range(self.nWords)]
+    self.components = None
+
     self.readCorpus(speechFeatureFile, imageFeatureFile, splitFile, debug=False)
     self.initProbFile = modelConfigs.get('init_prob_file', None)
     self.transProbFile = modelConfigs.get('trans_prob_file', None)
@@ -49,8 +53,7 @@ class MultimodalAdaGramPhoneDiscoverer:
     self.init = {}
     self.trans = {}                 
     self.lenProb = {}
-    self.prior = FixedVarPrior(0.002 * np.ones((self.audioFeatDim,)), np.zeros((self.audioFeatDim,)), 0.002 / 0.05 * np.ones((self.audioFeatDim,))) # TODO Find a better setting for this 
-
+    
     self.segmentations = [[] for _ in self.aCorpus]
       
   def readCorpus(self, speechFeatFile, imageFeatFile, splitFile, debug=False):
@@ -60,7 +63,7 @@ class MultimodalAdaGramPhoneDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
     
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus] 
@@ -71,16 +74,20 @@ class MultimodalAdaGramPhoneDiscoverer:
       if vfeat.shape[-1] == 0:
         self.vCorpus[ex] = np.zeros((1, self.imageFeatDim))
 
-    # TODO Pre-segmentation
     aFeats = np.load(speechFeatFile+'_embedding_mats.npz') 
-    vecIds = np.load(speechFeatFile+'_vec_ids.npz') 
-    aFeats, self.vecIds, _ = process_embeddings(aFeats, vecIds) 
-    landmarks = np.load(speechFeatFile+'_landmarks.npz')
-    self.aCorpus = [Utterance(vecId, lm) for vecId, lm in zip(self.vecIds, self.landmarks)]
-    self.components = GaussianComponentsFixedVar(aFeats, self.prior, K_max=self.nPhones)
-
-    self.landmarks = [landmarks[k] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+    vecIds = np.load(speechFeatFile+'_vec_ids_dict.npz') 
+    landmarks = np.load(speechFeatFile+'_landmarks_dict.npz')
+    # XXX
+    aFeats = {k: aFeats[k] for k in sorted(aFeats.keys(), key=lambda x:int(x.split('_')[-1]))[:30]}
+    vecIds = {k: vecIds[k].astype(int) for k in sorted(vecIds.keys(), key=lambda x:int(x.split('_')[-1]))[:30]}
+    landmarks = [np.append(np.zeros((1,)), landmarks[k].astype(int)) for k in sorted(landmarks.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
+    aFeats, vecIds, _ = process_embeddings(aFeats, vecIds)
     self.audioFeatDim = aFeats.shape[1]
+
+    # XXX
+    self.aCorpus = [Utterance(vecId, lm) for vecId, lm in zip(vecIds, landmarks)]
+    self.prior = FixedVarPrior(self.width / 10. * np.ones((self.audioFeatDim,)), np.zeros((self.audioFeatDim,)), self.width * np.ones((self.audioFeatDim,))) # TODO Find a better setting for this 
+    self.components = GaussianComponentsFixedVar(aFeats, self.prior, K_max=self.nPhones)
 
     if splitFile: 
       f = open(splitFile, 'r')
@@ -90,7 +97,7 @@ class MultimodalAdaGramPhoneDiscoverer:
       self.testIndices = []
 
     print('----- Corpus Summary -----')
-    print('Number of examples: ', len(self.landmarks))
+    print('Number of examples: ', len(landmarks))
     print('Number of objects: ', nImages)
     print("Maximum number of phone clusters: ", self.nPhones)
   
@@ -126,9 +133,9 @@ class MultimodalAdaGramPhoneDiscoverer:
     if self.visualAnchorFile:
       self.mus = np.load(self.visualAnchorFile)
     else:
-      #self.musV = 10. * np.eye(self.nWords)
-      self.musV = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
-      #self.musV = 1. * np.random.normal(size=(self.nWords, self.imageFeatDim))
+      #self.mus = 10. * np.eye(self.nWords)
+      self.mus = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
+      #self.mus = 1. * np.random.normal(size=(self.nWords, self.imageFeatDim))
     print("Finish initialization after %0.3f s" % (time.time() - begin_time))
     
     if self.tableFilePrefix:
@@ -147,16 +154,19 @@ class MultimodalAdaGramPhoneDiscoverer:
       vecIds, lms = aSen.vecIds, aSen.landmarks
       T = len(lms) - 1
       initPhones = np.random.randint(0, self.nPhones, T)
-        for ph in range(initPhones.max()):
-          while len(np.nonzero(initPhones == ph)[0]) == 0:
-            init_embeds_assignments[np.where(initPhones > ph)] -= 1
-          if initPhones.max() == ph:
-            break
+      for ph in range(initPhones.max()):
+        while len(np.nonzero(initPhones == ph)[0]) == 0:
+          initPhones[np.where(initPhones > ph)] -= 1
+        if initPhones.max() == ph:
+          break
       
-      for t, (begin, end) in enumerate(zip(lms[:-1], lms[1:])):
-        segId = end * (end - 1) / 2 + begin
+      for begin in range(T):
+        if (begin != 0 and begin < self.nSliceMin) or begin > T - self.nSliceMin:
+          continue
+        end = begin + self.nSliceMin
+        segId = int(end * (end - 1) / 2 + begin) 
         vecId = vecIds[segId]
-        self.components.add_item(vecId, initPhones[t]) 
+        self.components.add_item(vecId, initPhones[begin]) 
 
   def trainUsingEM(self, numIterations=20, writeModel=False, warmStart=False, convergenceEpsilon=0.01, printStatus=True, debug=False):
     self.initializeModel()
@@ -177,20 +187,20 @@ class MultimodalAdaGramPhoneDiscoverer:
         if ex in self.testIndices:
           continue
         aSen, vSen = self.aCorpus[ex], self.vCorpus[ex] 
-        alphas = self.forward(vSen, aSen) # Forward filtering 
+        alphas, _ = self.forward(vSen, aSen) # Forward filtering 
         if epoch > 0: 
           for t, (phn, begin, end) in enumerate(zip(aSen.phones, self.segmentations[ex][:-1], self.segmentations[ex][1:])): # Remove the old tables            
-            segId = end * (end - 1) / 2 + start 
-            vecId = self.vecIds[ex][segId]
+            segId = int(end * (end - 1) / 2 + begin) 
+            vecId = aSen.vecIds[segId]
             for k in range(self.nWords):
               # print('k, segment, counts, tables: ', k, segment, self.restaurantCounts[ex][t, k], self.restaurants[k].tables[k])
-              if k not in self.restaurants[k].name2table:
+              if phn not in self.restaurants[k].name2table:
                 # print('Warning: Count too small')
                 continue 
 
               self.restaurants[k].unseat_from(phn, self.restaurantCounts[ex][t, k]) 
-              self.components.del_item(vecId, phn)
-
+              self.components.del_item(vecId)
+        
         phones, boundaries = self.backwardSample(vSen, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
         self.aCorpus[ex].phones = deepcopy(phones)
         self.segmentations[ex] = deepcopy(boundaries)
@@ -199,12 +209,12 @@ class MultimodalAdaGramPhoneDiscoverer:
         backwardProbs, _ = self.backward(vSen, aSen, boundaries, debug=False) 
         initCounts[len(vSen)] += self.updateInitialCounts(forwardProbs, backwardProbs, debug=False) 
         transCounts[len(vSen)] += self.updateTransitionCounts(forwardProbs, backwardProbs, vSen, aSen, boundaries, debug=False) 
-        self.restaurantCounts[ex] = self.updateRestaurantCounts(forwardProbs, backwardProbs, aSen) 
+        self.restaurantCounts[ex] = self.updateRestaurantCounts(forwardProbs, backwardProbs) 
         self.conceptCounts[ex] = self.updateConceptCounts(vSen, aSen, boundaries) 
         
-        for t, (phn, start, end) in enumerate(zip(phones, segmentation[:-1], segmentation[1:])): # Add the new tables
-          segId = end * (end - 1) / 2 + start 
-          vecId = self.vecIds[ex][segId]
+        for t, (phn, begin, end) in enumerate(zip(phones, self.segmentations[ex][:-1], self.segmentations[ex][1:])): # Add the new tables
+          segId = int(end * (end - 1) / 2 + begin) 
+          vecId = aSen.vecIds[segId] 
           for k in range(self.nWords):
             self.restaurants[k].seat_to(phn, self.restaurantCounts[ex][t, k])
             self.components.add_item(vecId, phn) 
@@ -254,22 +264,22 @@ class MultimodalAdaGramPhoneDiscoverer:
     trans_diag = np.diag(np.diag(self.trans[nState]))
     trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
     if not segmentation:
-      T = len(vecIds)
+      T = len(lms) - 1
       scales = np.nan * np.ones((T, T))
-      forwardProbs = np.zeros((T, nState, self.nWords, self.nPhones)) 
+      forwardProbs = np.zeros((T, nState, self.nWords)) 
       prob_ph_given_z = np.asarray([[self.restaurants[k].prob(ph) for ph in range(self.nPhones)] for k in range(self.nWords)])
       for t in range(1, T+1): 
         for s in range(t):
-          dur = lms[t - 1] - lms[s]
-          segId = (t - 1) * t / 2 + s
+          dur = lms[t-1] - lms[s]
+          segId = int((t - 1) * t / 2 + s)
           vecId = vecIds[segId]  
-          log_prob_x_given_ph = dur * (self.components.log_post_pred(vecId) + self.components.log_prior(vecId)) # TODO Double check this          
-          scales[s, t] = logsumexp(log_prob_x_given_ph)  
-          log_prob_ph_given_x = log_prob_x_given_ph - scales[s, t] # Scaled to become p(ph|x) 
-
+          log_prob_x_given_ph = np.ones(self.components.K_max)
+          log_prob_x_given_ph[:self.components.K] = dur * self.components.log_post_pred(vecId)
+          log_prob_x_given_ph[self.components.K:] = dur * self.components.log_prior(vecId) # TODO Double check this          
+          scales[s, t-1] = logsumexp(log_prob_x_given_ph)  
+          log_prob_ph_given_x = log_prob_x_given_ph - scales[s, t-1] # Scaled to become p(ph|x) 
           prob_x_t_given_z = prob_ph_given_z @ np.exp(log_prob_ph_given_x) # TODO Check underflow
           prob_x_t_z_given_y = probs_z_given_y * prob_x_t_given_z
-          
           if s == 0:
             forwardProbs[t-1] = self.init[nState][:, np.newaxis] * prob_x_t_z_given_y 
           else:
@@ -290,11 +300,16 @@ class MultimodalAdaGramPhoneDiscoverer:
           
       if saveScale:  
         for t, (begin, end) in enumerate(zip(segmentation[:-1], segmentation[1:])):    
-          dur = lms[end - 1] - lms[begin]
-          segId = (end - 1) * end / 2 + begin
+          segment = aSen.phones[t]
+          dur = lms[end-1] - lms[begin]
+          segId = int((end - 1) * end / 2 + begin)
           vecId = vecIds[segId]  
-          log_prob_x_given_ph = dur * (self.components.log_post_pred(vecId) + self.components.log_prior(vecId)) # TODO Double check this 
-          scales[t] = log_prob_x_given_ph[segment]
+          
+          if segment < self.components.K:
+            log_prob_x_given_ph = dur * self.components.log_post_pred_k(vecId, segment)
+          else:
+            log_prob_x_given_ph = dur * self.components.log_prior(vecId) # TODO Double check this
+          scales[t] = log_prob_x_given_ph
 
       prob_x_t_given_z = np.asarray(prob_x_t_given_z).T         
       forwardProbs[0] = self.init[nState][:, np.newaxis] * probs_z_given_y * prob_x_t_given_z[0]
@@ -367,11 +382,15 @@ class MultimodalAdaGramPhoneDiscoverer:
       candidates = []
       lengths = []
       for s in range(t):
+        if (s != 0 and s < self.nSliceMin) or t - s < self.nSliceMin or t - s > self.nSliceMax:
+          continue
         lengths.append(t - s)
-        dur = lms[t - 1] - lms[s]
-        segId = (t - 1) * t / 2 + s
-        vecId = vecIds[segId]  
-        log_prob_x_given_ph = dur * (self.components.log_post_pred(vecId) + self.components.log_prior(vecId))
+        dur = lms[t-1] - lms[s]
+        segId = int((t - 1) * t / 2 + s)
+        vecId = vecIds[segId] 
+        log_prob_x_given_ph = np.ones(self.components.K_max)
+        log_prob_x_given_ph[:self.components.K] = dur * self.components.log_post_pred(vecId)
+        log_prob_x_given_ph[self.components.K:] = dur * self.components.log_prior(vecId)
         logw = logsumexp(np.log(alphas[t - s] @ self.trans[nState] @ probs_z_given_y @ prob_ph_given_z) + log_prob_x_given_ph)
         logws.append(logw)
       wSegs = np.exp(np.asarray(logws) - logsumexp(logws)) # TODO Check underflow issues 
@@ -379,9 +398,11 @@ class MultimodalAdaGramPhoneDiscoverer:
       boundaries = [t - lengths[i]] + boundaries
         
       # Sample the phone label
-      segId = (t - 1) * t / 2 + t - lengths[i]
-      vecId = vecIds[segId]  
-      log_prob_x_given_ph = lengths[i] * (self.components.log_post_pred(vecId) + self.components.log_prior(vecId))
+      segId = int((t - 1) * t / 2 + t - lengths[i])
+      vecId = vecIds[segId] 
+      log_prob_x_given_ph = np.ones(self.components.K_max) 
+      log_prob_x_given_ph[:self.components.K] = lengths[i] * self.components.log_post_pred(vecId)
+      log_prob_x_given_ph[self.components.K:] = lengths[i] * self.components.log_prior(vecId)
       logws = []
       logws = np.log(alphas[t - lengths[i]] @ self.trans[nState] @ probs_z_given_y @ prob_ph_given_z) + log_prob_x_given_ph
       wPhs = np.exp(logws - logsumexp(logws)) # TODO Check underflow issues 
@@ -597,7 +618,7 @@ class MultimodalAdaGramPhoneDiscoverer:
         continue
       forwardProb, scales = self.forward(vSen, aSen, segmentation=segmentation, saveScale=True)
       likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
-      ll += math.log(likelihood) + np.sums(scales)
+      ll += (math.log(likelihood) + np.sum(scales)) / len(self.vCorpus)
     return ll
 
   def p_init(self):
@@ -642,13 +663,8 @@ class MultimodalAdaGramPhoneDiscoverer:
     prob_x_t_given_z = []
     for k in range(self.nWords):
       prob_x_t_given_z.append([])
-      for begin, end in zip(segmentation[:-1], segmentation[1:]):
-        segment = ' '.join(aSen[begin:end])      
-        if segment not in self.restaurants[k].p_init:
-          p_init = self.p_init(segment)
-        else:
-          p_init = None
-        prob_x_t_given_z[k].append(self.restaurants[k].prob(segment, p_init))
+      for segment, begin, end in zip(aSen.phones, segmentation[:-1], segmentation[1:]): 
+        prob_x_t_given_z[k].append(self.restaurants[k].prob(segment))
     prob_x_t_given_z = np.asarray(prob_x_t_given_z).T
 
     scores = np.zeros((nState, self.nWords))
@@ -677,8 +693,8 @@ class MultimodalAdaGramPhoneDiscoverer:
       self.restaurants[k].save(outputDir=fileName + '_concept_%d_' % k)   
    
     for ph in range(self.nPhones):
-      np.save(outputDir=filename + '_phone_cluter_mean_numerators.npy', self.components.mu_N_numerators)
-      np.save(outputDir=filename + '_phone_cluter_mean_counts.npy', self.components.counts)
+      np.save(fileName + '_phone_cluter_mean_numerators.npy', self.components.mu_N_numerators)
+      np.save(fileName + '_phone_cluter_mean_counts.npy', self.components.counts)
 
     np.save(fileName+'_visualanchors.npy', self.mus) 
 
@@ -688,7 +704,7 @@ class MultimodalAdaGramPhoneDiscoverer:
     aligns = []
     for i, (aSen, vSen) in enumerate(zip(self.aCorpus, self.vCorpus)):
       if i in self.testIndices:
-        alphas = self.forward(vSen, aSen) # Forward filtering
+        alphas, _ = self.forward(vSen, aSen) # Forward filtering
         segments, boundaries = self.backwardSample(vSen, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
         self.segmentations[i] = deepcopy(boundaries)
       alignment, alignProbs = self.align(aSen, vSen, self.segmentations[i], debug=debug)
@@ -701,13 +717,13 @@ class MultimodalAdaGramPhoneDiscoverer:
             'index': i,
             'image_concepts': clustersV,
             'alignment': alignmentPhoneLevel,
-            'align_probs': alignProbs
+            'align_probs': alignProbs,
             'segmentation': self.segmentations[i],
             'phones': aSen.phones
           }
       aligns.append(align_info)
-      for begin, end in zip(self.segmentations[i][:-1], self.segmentations[i][1:]): 
-        segment = ','.join(aSen[begin:end])
+      for t, (begin, end) in enumerate(zip(self.segmentations[i][:-1], self.segmentations[i][1:])): 
+        segment = aSen.phones[t]
         f.write('%s ' % segment)
       f.write('\n')
 
@@ -724,6 +740,12 @@ class Utterance(object):
     self.vecIds = vecIds
     self.landmarks = landmarks
     self.phones = phones
+
+  def __len__(self):
+    if self.phones:
+      return len(self.phones)
+    else:
+      return 0
 
 # Inputs:
 # ------
@@ -805,11 +827,11 @@ if __name__ == '__main__':
   # Word discovery on MSCOCO #
   #--------------------------#
   if 2 in tasks:      
-    speechFeatureFile = '../data/mscoco2k_phone_captions.txt'
+    speechFeatureFile = '../data/mscoco2k'
     imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1, 'alpha_0': 1.}
-    modelName = 'exp/may21_mscoco2k_gaussian_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 10., 'n_slices_min': 4, 'n_slices_max': 7}
+    modelName = 'exp/june14_mscoco2k_mag_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
     print(modelName)
     model = MultimodalAdaGramPhoneDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
-    model.trainUsingEM(20, writeModel=True, debug=False)
+    model.trainUsingEM(20, writeModel=True, debug=False)     
     model.printAlignment(modelName+'_alignment', debug=False)

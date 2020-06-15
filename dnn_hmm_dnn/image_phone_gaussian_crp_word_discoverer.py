@@ -252,7 +252,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
             segment = ' '.join(aSen[begin:end]) 
             for k in range(self.nWords):
               # print('k, segment, counts, tables: ', k, segment, self.restaurantCounts[ex][t, k], self.restaurants[k].tables[k])
-              if k not in self.restaurants[k].name2table:
+              if segment not in self.restaurants[k].name2table:
                 # print('Warning: Count too small')
                 continue 
               self.restaurants[k].unseat_from(segment, self.restaurantCounts[ex][t, k])

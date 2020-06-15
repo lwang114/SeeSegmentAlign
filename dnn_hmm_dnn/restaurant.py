@@ -1,3 +1,4 @@
+EPS = 1e-100
 class Restaurant:
   # Attributes:
   # ----------
