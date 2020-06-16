@@ -438,7 +438,10 @@ class ImagePhoneGaussianCRPWordDiscoverer:
         prob_x_t_given_z = np.asarray(prob_x_t_given_z)
  
         probs_x_given_y = probs_z_given_y @ prob_x_t_given_z 
-        ws.append(alphas[s-1] @ self.trans[nState] @ probs_x_given_y)
+        if s == 0:
+          ws.append(self.init[nState] @ probs_x_given_y)
+        else:
+          ws.append(alphas[s-1] @ self.trans[nState] @ probs_x_given_y)
       i = draw(ws) 
       boundaries = [t - lengths[i]] + boundaries
       segments = [candidates[i]] + segments
