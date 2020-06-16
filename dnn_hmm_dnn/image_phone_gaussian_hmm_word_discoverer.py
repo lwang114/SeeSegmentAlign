@@ -55,7 +55,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))] 
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]] 
     
     if self.hasNull:
       # Add a NULL concept vector
@@ -87,7 +87,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     self.audioFeatDim = nTypes
 
     # XXX
-    for aSenStr in aCorpusStr:
+    for aSenStr in aCorpusStr[:30]:
       T = len(aSenStr)
       aSen = np.zeros((T, self.audioFeatDim))
       for t, phn in enumerate(aSenStr):
@@ -491,13 +491,13 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         if ex in self.testIndices:
           continue
         zProb = self.softmaxLayer(vSen, debug=debug)
+        print('zProb: ', np.argmax(zProb, axis=1))
         Delta = conceptCount - zProb 
         posteriorGaps += 1. / (len(self.vCorpus) - len(self.testIndices)) * np.sum(np.abs(Delta))
         dmus += 1. / (len(self.vCorpus) * self.width) * (Delta.T @ vSen - (np.sum(Delta, axis=0) * self.mus.T).T) 
       self.mus = (1. - self.momentum) * self.mus + self.lr * dmus
     
     return posteriorGaps 
-
 
   def softmaxLayer(self, vSen, debug=False):
     N = vSen.shape[0]
@@ -623,7 +623,12 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     transFile.close()
 
     np.save(fileName+'_observationprobs.npy', self.obs)
-   
+    with open(fileName+'_observationprobs_readable.txt', 'w') as f:
+      for k in range(self.nWords):
+        for phn in self.phone2idx: 
+          if self.obs[k, self.phone2idx[phn]] > EPS:
+            f.write('%d %s %.5f\n' % (k, phn, self.obs[k, self.phone2idx[phn]]))
+
     with open(fileName+'_phone2idx.json', 'w') as f:
       json.dump(self.phone2idx, f)
    

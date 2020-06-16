@@ -63,7 +63,7 @@ class VisualAudioSegmentalGMMDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
     
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus] 
@@ -78,8 +78,8 @@ class VisualAudioSegmentalGMMDiscoverer:
     vecIds = np.load(speechFeatFile+'_vec_ids_dict.npz') 
     landmarks = np.load(speechFeatFile+'_landmarks_dict.npz')
     # XXX
-    # aFeats = {k: aFeats[k] for k in sorted(aFeats.keys(), key=lambda x:int(x.split('_')[-1]))[-50:]}
-    # vecIds = {k: vecIds[k].astype(int) for k in sorted(vecIds.keys(), key=lambda x:int(x.split('_')[-1]))[-50:]}
+    aFeats = {k: aFeats[k] for k in sorted(aFeats.keys(), key=lambda x:int(x.split('_')[-1]))[:30]}
+    vecIds = {k: vecIds[k].astype(int) for k in sorted(vecIds.keys(), key=lambda x:int(x.split('_')[-1]))[:30]}
     landmarks = [np.append(np.zeros((1,)), landmarks[k].astype(int)) for k in sorted(landmarks.keys(), key=lambda x:int(x.split('_')[-1]))]
 
     aFeats, vecIds, _ = process_embeddings(aFeats, vecIds)
