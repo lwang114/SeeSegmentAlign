@@ -215,55 +215,73 @@ def segmentation_to_word_classes(segmentation_file,
                                  phone_corpus_file = None,
                                  split_file = None,
                                  include_null = False):
-  with open(segmentation_file, 'r') as f:
-    segmentations = f.read().strip().split('\n')
-
-
-  test_indices = list(range(len(segmentations)))
+  word_units = {}
   if split_file:  
     with open(split_file, 'r') as f:
       test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
-  
-  if phone_corpus_file:
-    with open(phone_corpus_file, 'r') as f:
-      phone_corpus = f.read().strip().split('\n') 
-  word_units = {}
-  # XXX
-  for ex, segmentation in enumerate(segmentations):
-    if not ex in test_indices:
-      continue
-    
-    pair_id = 'pair_' + str(ex)  
-    print(pair_id)
-    start = 0
-    for t, seg in enumerate(segmentation.split()):
-      if not seg in word_units:
-        if phone_corpus_file and start + len(seg.split(',')) >= len(phone_corpus[ex].split()):
-          nPhones = len(phone_corpus[ex].split())
-          print('Sequence reaches the end of the ground truth', start + len(seg.split(',')), nPhones)
-          print(start, nPhones)
-          word_units[seg] = ['%s %d %d\n' % (pair_id, start, start + len(seg.split(',')))] 
-          break
-        word_units[seg] = ['%s %d %d\n' % (pair_id, start, start + len(seg.split(',')))]
-      else:
-        if phone_corpus_file and start + len(seg.split(',')) >= len(phone_corpus[ex].split()):
-          nPhones = len(phone_corpus[ex].split())
-          print('Sequence longer than the ground truth', start + len(seg.split(',')), nPhones)
-          print(start, nPhones)
-          word_units[seg].append('%s %d %d\n' % (pair_id, start, nPhones))
-          start += len(seg.split(','))
-          break
-        word_units[seg].append('%s %d %d\n' % (pair_id, start, start + len(seg.split(','))))
-      start += len(seg.split(','))
 
+  if segmentation_file.split('.')[-1] == 'txt':
+    with open(segmentation_file, 'r') as f:
+      segmentations = f.read().strip().split('\n')
+    
+    if not split_file:
+      test_indices = list(range(len(segmentations)))
+    
     if phone_corpus_file:
-      nPhones = len(phone_corpus[ex].split())
-      if start < len(phone_corpus[ex].split()):
-        print('Sequence shorter than the ground truth', start, nPhones)
-        if NULL not in word_units:
-          word_units[NULL] = ['%s %d %d\n' % (pair_id, start, nPhones)]
+      with open(phone_corpus_file, 'r') as f:
+        phone_corpus = f.read().strip().split('\n') 
+
+    for ex, segmentation in enumerate(segmentations):
+      if not ex in test_indices:
+        continue
+      
+      pair_id = 'pair_' + str(ex)  
+      print(pair_id)
+      start = 0
+      for t, seg in enumerate(segmentation.split()):
+        if not seg in word_units:
+          if phone_corpus_file and start + len(seg.split(',')) >= len(phone_corpus[ex].split()):
+            nPhones = len(phone_corpus[ex].split())
+            print('Sequence reaches the end of the ground truth', start + len(seg.split(',')), nPhones)
+            print(start, nPhones)
+            word_units[seg] = ['%s %d %d\n' % (pair_id, start, start + len(seg.split(',')))] 
+            break
+          word_units[seg] = ['%s %d %d\n' % (pair_id, start, start + len(seg.split(',')))]
         else:
-          word_units[NULL].append('%s %d %d\n' % (pair_id, start, nPhones))
+          if phone_corpus_file and start + len(seg.split(',')) >= len(phone_corpus[ex].split()):
+            nPhones = len(phone_corpus[ex].split())
+            print('Sequence longer than the ground truth', start + len(seg.split(',')), nPhones)
+            print(start, nPhones)
+            word_units[seg].append('%s %d %d\n' % (pair_id, start, nPhones))
+            start += len(seg.split(','))
+            break
+          word_units[seg].append('%s %d %d\n' % (pair_id, start, start + len(seg.split(','))))
+        start += len(seg.split(','))
+
+      if phone_corpus_file:
+        nPhones = len(phone_corpus[ex].split())
+        if start < len(phone_corpus[ex].split()):
+          print('Sequence shorter than the ground truth', start, nPhones)
+          if NULL not in word_units:
+            word_units[NULL] = ['%s %d %d\n' % (pair_id, start, nPhones)]
+          else:
+            word_units[NULL].append('%s %d %d\n' % (pair_id, start, nPhones))
+  else:
+    with open(segmentation_file, 'r') as f:
+      data_info = json.load(f)
+      segmentations = [datum_info['segmentation'] for datum_info in data_info]
+      phones = [datum_info['phones'] for datum_info in data_info]
+
+    if not split_file:
+      test_indices = list(range(len(segmentations)))
+      
+    for ex, (sent, segmentation) in enumerate(zip(phones, segmentations)):
+      pair_id = 'pair_' + str(ex)
+      for seg, start, end in zip(sent, segmentation[:-1], segmentation[1:]):
+        if not seg in word_units:
+          word_units[seg] = ['%s %d %d\n' % (pair_id, start, end)]
+        else:
+          word_units[seg].append('%s %d %d\n' % (pair_id, start, end)) 
 
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):
@@ -531,17 +549,23 @@ if __name__ == '__main__':
   parser.add_argument('--exp_dir', type=str, default='./', help='Experimental directory containing the alignment files')
   parser.add_argument('--dataset', choices=['mscoco2k', 'mscoco20k', 'flickr'])
   args = parser.parse_args()
+  tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
   
-  tasks = [0]
+  tasks = [1]
   if 0 in tasks:
     model_name = 'crp'
     exp_dir = args.exp_dir
     dataset = args.dataset
     segmentation_file = exp_dir + 'segmented_sentences.txt'
-    tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
+
     for k in range(5): 
       segmentation_to_word_classes(segmentation_file, 
                                  word_class_file='%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, dataset, model_name, k),
                                  phone_corpus_file = '../data/%s_phone_captions.txt' % args.dataset,
                                  split_file = '%send-to-end_split_%d.txt' % (exp_dir, k),
                                  include_null = True)
+  if 1 in tasks:
+    model_name = 'vasgmm'
+    segmentation_file = args.exp_dir + model_name + '_alignment.json'
+    print(segmentation_file)
+    segmentation_to_word_classes(segmentation_file, word_class_file='%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name))

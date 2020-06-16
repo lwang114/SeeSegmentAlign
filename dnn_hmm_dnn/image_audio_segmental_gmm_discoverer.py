@@ -15,8 +15,8 @@ EPS = 1e-100
 random.seed(1)
 np.random.seed(1)
 
-class MultimodalAdaGramPhoneDiscoverer:
-  # A phone discovery model using image regions and audio captions
+class VisualAudioSegmentalGMMDiscoverer:
+  # A term discovery model using image regions and audio captions
   # Attributes:
   # ----------
   #   aCorpus: a list of utterance objects
@@ -30,7 +30,7 @@ class MultimodalAdaGramPhoneDiscoverer:
   #          trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
   #   segmentations: a list containing time boundaries for each sentence, 
   #                 [[1, s_1^1, ..., T^1], [1, s_1^2, ..., T^2], ..., [1, s_1^N, ..., T^N]], where T^n is the number of landmarks for utterance n
-  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=None, modelName='mag_phone'):
+  def __init__(self, speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=None, modelName='vasgmm'):
     self.modelName = modelName 
     self.alpha0 = modelConfigs.get('alpha_0', 1.0) # Concentration parameter for the Dirichlet prior
     self.hasNull = modelConfigs.get('has_null', False)
@@ -774,8 +774,8 @@ if __name__ == '__main__':
     speechFeatureFile = '../data/mscoco2k'
     imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
     modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 10., 'n_slices_min': 4, 'n_slices_max': 7}
-    modelName = 'exp/june14_mscoco2k_mag_res34_lr%.5f/mag_phone' % modelConfigs['learning_rate'] 
+    modelName = 'exp/june14_mscoco2k_vasgmm_res34_lr%.5f/vasgmm' % modelConfigs['learning_rate'] 
     print(modelName)
-    model = MultimodalAdaGramPhoneDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
+    model = VisualAudioSegmentalGMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(100, writeModel=True, debug=False)     
     model.printAlignment(modelName+'_alignment', debug=False)
