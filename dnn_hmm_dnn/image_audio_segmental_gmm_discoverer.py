@@ -64,7 +64,7 @@ class VisualAudioSegmentalGMMDiscoverer:
     vNpz = np.load(imageFeatFile)
     # XXX
     self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]]
-    
+
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus] 
     self.imageFeatDim = self.vCorpus[0].shape[-1]
@@ -97,6 +97,8 @@ class VisualAudioSegmentalGMMDiscoverer:
 
     print('----- Corpus Summary -----')
     print('Number of examples: ', len(landmarks))
+    print('Dimension of speech embeddings: ', self.audioFeatDim)
+    print('Dimension of image embeddings: ', self.imageFeatDim)
     print('Number of objects: ', nImages)
     print("Maximum number of phone clusters: ", self.nPhones)
   
@@ -766,16 +768,40 @@ def draw(ws):
     return i
 
 if __name__ == '__main__':
-  tasks = [0]
+  tasks = [1]
   #--------------------------#
   # Word discovery on MSCOCO #
   #--------------------------#
   if 0 in tasks:      
     speechFeatureFile = '../data/mscoco2k'
-    imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 10., 'n_slices_min': 4, 'n_slices_max': 7}
-    modelName = 'exp/june14_mscoco2k_vasgmm_res34_lr%.5f/vasgmm' % modelConfigs['learning_rate'] 
+    imageFeatureFile = '../data/mscoco2k_concept_gaussian_vectors.npz'
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 1., 'n_slices_min': 3, 'n_slices_max': 11, 'width': 0.1}
+    modelName = 'exp/june22_mscoco2k_vasgmm_res34_lr%.5f/vasgmm' % modelConfigs['learning_rate'] 
     print(modelName)
     model = VisualAudioSegmentalGMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(100, writeModel=True, debug=False)     
     model.printAlignment(modelName+'_alignment', debug=False)
+  #----------------------------------#
+  # Word discovery on Synthetic data #
+  #----------------------------------#
+  if 1 in tasks:
+    modelName = 'exp/june22_tiny_vasgmm/vasgmm'
+    speechFeatureFile = '../data/tiny'
+    embedding_mats = {
+      'arr_1': [[[1, 0, 0], [0, 1, 0]], 
+                [[-1, -1, -1], [1./2, 1./2, 0]]],
+      'arr_2': [[[0, 1, 0], [0, 0, 1]], 
+                [[-1, -1, -1], [0, 1./2, 1./2]]],
+      'arr_3': [[[1, 0, 0], [0, 0, 1]],
+                [[-1, -1, -1], [1./2, 0, 1./2]]
+                 }
+    vec_ids = {'arr_'+str(i): np.asarray([0, 1, 2]) for i in range(3)}
+    landmarks = {'arr_'+str(i): np.asarray([0, 1, 2]) for i in range(3)}
+    np.savez(speechFeatureFile + '_embedding_mats.npz', **embedding_mats)
+    np.savez(speechFeatureFile + '_vec_ids.npz', **vec_ids)
+    np.savez(speechFeatureFile + '_landmarks.npz', **landmarks)
+    imageFeatureFile = '../data/tiny_concept_vectors.npz'
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 1., 'n_slices_min': 3, 'n_slices_max': 11, 'width': 0.1}
+    model = VisualAudioSegmentalGMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
+    model.trainUsingEM(10, writeModel=True)
+    model.printAlignment(modelName+'_alignment')
