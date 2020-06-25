@@ -49,7 +49,29 @@ class DavenetSmall(nn.Module):
         x = self.batchnorm1(x)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
-        x = self.pool(x)
+        # x = self.pool(x)
         x = F.relu(self.conv3(x))
         x = x.squeeze(2)
         return x
+
+class SentenceRNN(nn.Module):
+    def __init__(self, input_dim, embedding_dim):
+        super(SentenceRNN, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.n_layers = n_layers
+        self.rnn = nn.LSTM(input_size=40, hidden_size=embedding_dim, num_layers=n_layers, batch_first=True, bidirectional=True)
+
+    def forward(self, x):
+        if x.dim() == 3:
+            x = x.unsqueeze(1)
+
+        B = x.size(0)
+        T = x.size(1)
+        if torch.cuda.is_available():
+          h0 = torch.zeros((2 * self.n_layers, B, self.embedding_dim))
+          c0 = torch.zeros((2 * self.n_layers, B, self.embedding_dim))
+        
+        embed, _ = self.rnn(x, (h0, c0))
+        print('embed.size(): ', embed.size())
+        out = embed[:, :, :self.embedding_dim] + embed[:, :, self.embedding_dim:]
+        return out

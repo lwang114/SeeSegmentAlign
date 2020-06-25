@@ -43,7 +43,7 @@ parser.add_argument("--n_epochs", type=int, default=100,
         help="number of maximum training epochs")
 parser.add_argument("--n_print_steps", type=int, default=10,
         help="number of steps to print statistics")
-parser.add_argument("--audio-model", type=str, default="Davenet",
+parser.add_argument("--audio-model", type=str, default="Davenet", choices=['Davenet', 'RNN']
         help="audio model architecture", choices=["Davenet"])
 parser.add_argument("--image-model", type=str, default="VGG16",
         help="image model architecture", choices=["VGG16"])
@@ -116,7 +116,11 @@ if 1 in tasks:
   with open(phone2idx_file, 'r') as f:
     phone2idx = json.load(f)
 
-  audio_model = models.DavenetSmall(input_dim=len(phone2idx), embedding_dim=512)
+  if args.audio_model == 'Davenet':
+    audio_model = models.DavenetSmall(input_dim=len(phone2idx), embedding_dim=512)
+  elif args.audio_model == 'RNN':
+    audio_model = models.SentenceRNN(input_dim=len(phone2idx), embedding_dim=512)
+ 
   image_model = models.NoOpEncoder(embedding_dim=512)
 
   if not bool(args.exp_dir):

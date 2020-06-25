@@ -14,7 +14,7 @@ random.seed(2)
 parser = argparse.ArgumentParser()
 # TODO Remove unused options
 parser.add_argument('--has_null', help='Include NULL symbol in the image feature', action='store_true')
-parser.add_argument('--dataset', choices={'mscoco2k', 'mscoco20k', 'mscoco_train', 'flickr'}, help='Dataset used for training the model')
+parser.add_argument('--dataset', choices={'mscoco2k', 'mscoco20k', 'flickr'}, help='Dataset used for training the model')
 parser.add_argument('--feat_type', choices={'synthetic', 'vgg16_penult', 'res34'}, help='Type of image features')
 parser.add_argument('--audio_feat_type', choices={'ground_truth', 'force_align'}, default='ground_truth')
 parser.add_argument('--model_type', choices={'phone', 'cascade', 'end-to-end'}, default='end-to-end', help='Word discovery model type')
@@ -30,9 +30,9 @@ parser.add_argument('--n_concepts', type=int, default=50, help='Number of image 
 parser.add_argument('--date', type=str, default='', help='Date of starting the experiment')
 args = parser.parse_args()
 
-dataDir = 'data/'
 if args.dataset == 'mscoco2k':
   nExamples = 2541
+  dataDir = 'data/'
   phoneCaptionFile = dataDir + 'mscoco2k_phone_captions.txt'
   if args.model_type == 'phone' or args.model_type == 'end-to-end': 
     if args.audio_feat_type == 'force_align':
@@ -81,13 +81,12 @@ elif args.dataset == 'mscoco20k':
   conceptIdxFile = dataDir + 'concept2idx.json'
   goldAlignmentFile = dataDir + 'mscoco20k_gold_alignment.json'
   nWords = 65
-# TODO: Change the filenames
 elif args.dataset == 'flickr':
+  nExamples = 8000
   dataDir = 'data/'
-  speechFeatureFile = dataDir + 'flickr30k_captions_words.txt'
-  # speechFeatureFile = dataDir + 'flickr30k_captions_phones.txt'
+  speechFeatureFile = dataDir + 'flickr30k_captions_phones.txt' # 'flickr30k_captions_words.txt'
   # TODO Generate this file
-  # imageConceptFile = dataDir + 'flickr30k'
+  imageConceptFile = dataDir + 'flickr30k'
   if args.feat_type == 'synthetic':
     imageFeatureFile = dataDir + 'flickr30k_synethetic_embeds.npz'
   elif args.feat_type == 'res34':
@@ -97,17 +96,8 @@ elif args.dataset == 'flickr':
   conceptIdxFile = dataDir + 'type2idx.json'
   goldAlignmentFile = dataDir + 'flickr30k_gold_alignment.json'
   nWords = args.n_concepts
-elif args.dataset == 'mscoco_train':
-  # TODO nExamples = ?
-  speechFeatureFile = dataDir + 'mscoco_train_phone_captions.txt'
-  imageFeatureFile = dataDir + 'mscoco_train_res34_embed512dim.npz'
-  conceptIdxFile = '' # TODO
-  goldAlignmentFile = '' # TODO
-  imageConceptFile = '' # TODO
-  nWords = 80
 else:
-  raise ValueError('Dataset unspecified or invalid')
-
+  raise ValueError('Dataset unspecified or invalid dataset')
 
 modelConfigs = {
   'has_null': args.has_null, 
@@ -173,10 +163,14 @@ if 1 in tasks:
       model.trainUsingEM(nIters, writeModel=True, debug=False)
   else:
     nIters = 20
+    if args.dataset == 'flickr':
+      splitFile = dataDir + 'flickr30k_captions_split.txt'
+    else:
+      splitFile = None
     if args.model_type == 'cascade' or args.model_type == 'phone':
-      model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
+      model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName, splitFile=splitFile)
     elif args.model_type == 'end-to-end':
-      model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
+      model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName, splitFile=splitFile)
       nIters = 20 # XXX
     
     model.trainUsingEM(nIters, writeModel=True, debug=False)

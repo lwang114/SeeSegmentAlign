@@ -565,7 +565,8 @@ if __name__ == '__main__':
                                  split_file = '%send-to-end_split_%d.txt' % (exp_dir, k),
                                  include_null = True)
   if 1 in tasks:
-    model_name = 'vasgmm'
-    segmentation_file = args.exp_dir + model_name + '_alignment.json'
-    print(segmentation_file)
-    segmentation_to_word_classes(segmentation_file, word_class_file='%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name))
+    model_names = ['vasgmm', 'vasgmm_ctc']
+    for model_name in model_names:
+      segmentation_file = args.exp_dir + model_name + '_alignment.json'
+      print(segmentation_file)
+      segmentation_to_word_classes(segmentation_file, word_class_file='%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name))

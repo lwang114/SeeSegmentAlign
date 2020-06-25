@@ -360,6 +360,44 @@ class MSCOCOAudioFeaturePreprocessor:
 
     np.savez(output_file, **landmarks)
 
+  def create_gold_word_landmarks(self, feat_configs, output_file='mscoco_word_landmarks'):
+    frame_ms = feat_configs.get('skip_ms', 10)
+    sr = feat_configs.get('sample_rate', 16000)
+    hop_length = int(frame_ms * sr / 1000)
+    landmarks = {}
+    for i, datum_info in enumerate(self.audio_info):
+      index = 'arr_' + str(i)
+      # XXX
+      # if i != 55:
+      #   continue
+      # print(index)
+      data_ids = datum_info['data_ids']
+      if len(data_ids) == 0:
+        continue 
+
+      landmark_i = []
+      start_sent = 0
+      
+      # Have to be exactly the same as the previous function
+      for data_id in data_ids:
+        for phn_info in data_id[2]:
+          phn = phn_info[0]
+          if phn in NONPHONE:
+            print('Ignore %s in example %d' % (phn, i))
+            continue
+          start_ms, end_ms = phn_info[1], phn_info[2]
+          start = int(start_ms * sr / 1000.)
+          end = int(end_ms * sr / 1000.)
+
+          # start_ms, end_ms = phn_info[1], phn_info[2]
+          # if int((end - start) / hop_length) <= 0:
+          #   print(i, start_ms, end_ms)
+          # XXX Add at least one frame to the previous frame
+          start_sent += max(end - start, hop_length)
+        landmark_i.append(int(start_sent / hop_length))
+      landmarks[index] = [0] + landmark_i
+    np.savez(output_file, **landmarks)
+
   def create_gold_word_segmentation(self, feat_configs, output_file='mscoco_gold_segmentations'):
     frame_ms = feat_configs.get('skip_ms', 10)
     sr = feat_configs.get('sample_rate', 16000)
@@ -496,7 +534,7 @@ def embed(y, embed_dim, frame_dim=None, technique="resample"):
   return y_new
  
 if __name__ == "__main__":
-  tasks = [1, 3]
+  tasks = [3]
   
   if 0 in tasks:
     data_dir = "../data/flickr30k/audio_level/"
@@ -511,12 +549,13 @@ if __name__ == "__main__":
     feat_extractor = FlickrFeaturePreprocessor(audio_info_file, audio_dir, utt2spk_file)
     out_dir = '.'
     feat_extractor.convertMatToNpz(feat_mat_file, feat_npz_file, utterance_ids_file)
+
   if 1 in tasks:
     audio_info_file = '../data/mscoco2k_phone_info.json' 
     audio_dir = '/home/lwang114/data/mscoco/audio/val2014/'
     feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
-    # feat_extractor.extractMFCC(feat_configs={'is_subword':True, 'is_segmented':False}, out_dir='./mscoco2k_')
-    feat_extractor.create_gold_phone_landmarks(feat_configs={}, output_file='mscoco2k_gold_phone_landmarks')
+    # feat_extractor.create_gold_phone_landmarks(feat_configs={}, output_file='mscoco2k_gold_phone_landmarks')
+    feat_extractor.create_gold_word_landmarks(feat_configs={}, output_file='mscoco2k_gold_word_landmarks')
     # feat_extractor.create_gold_word_segmentation(feat_configs={'level':'frame'}, output_file='mscoco20k_gold_word_segmentation')
 
     # data_info_file = '../data/mscoco/mscoco20k_phone_info.json'
@@ -525,7 +564,13 @@ if __name__ == "__main__":
   if 2 in tasks:
     feat_extractor.extract_kamper_embeddings('../data/TIMIT/TIMIT_subset_mfcc.npz', embed_dim=140, file_prefix='TIMIT_subset_kamper_embeddings', subword=False)
   if 3 in tasks:
+    segment = False
+    out_dir = '../data/mscoco2k_'
     audio_info_file = '../data/mscoco2k_phone_info.json' 
     audio_dir = '/home/lwang114/data/mscoco/audio/val2014/'
     feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
-    feat_extractor.extractMFCC(feat_configs={'is_subword':True}, out_dir='./mscoco2k_')
+    # feat_extractor.extractMFCC(feat_configs={'is_subword': True}, out_dir=out_dir)
+    if not segment:
+      aNpz = np.load(out_dir + 'mfcc.npz')
+      aNpzConcat = {k: np.concatenate(aFeat, axis=0) for k, aFeat in aNpz.items()}
+      np.savez(out_dir + 'mfcc_unsegmented.npz', **aNpzConcat)

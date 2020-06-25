@@ -143,7 +143,7 @@ if 1 in tasks:
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
     disc_clsfiles = ['%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
-
+    print(disc_clsfiles)
     for model_name, disc_clsfile in zip(model_names, disc_clsfiles):
       discovered = Disc(disc_clsfile, gold) 
       

@@ -80,7 +80,7 @@ class VisualAudioSegmentalGMMDiscoverer:
     # XXX
     aFeats = {k: aFeats[k] for k in sorted(aFeats.keys(), key=lambda x:int(x.split('_')[-1]))[:30]}
     vecIds = {k: vecIds[k].astype(int) for k in sorted(vecIds.keys(), key=lambda x:int(x.split('_')[-1]))[:30]}
-    landmarks = [np.append(np.zeros((1,)), landmarks[k].astype(int)) for k in sorted(landmarks.keys(), key=lambda x:int(x.split('_')[-1]))]
+    landmarks = [np.append(np.zeros((1,)), landmarks[k].astype(int)) if landmarks[k][0] != 0 else landmarks[k].astype(int) for k in sorted(landmarks.keys(), key=lambda x:int(x.split('_')[-1]))]
 
     aFeats, vecIds, _ = process_embeddings(aFeats, vecIds)
     self.audioFeatDim = aFeats.shape[1]
@@ -151,6 +151,8 @@ class VisualAudioSegmentalGMMDiscoverer:
         _ = self.restaurants[k].prob(ph, self.p_init()) # Initialize the phone prior  
     
     # Initialize the cluster means and segmentation
+    # XXX
+    '''
     for ex, aSen in enumerate(self.aCorpus):
       vecIds, lms = aSen.vecIds, aSen.landmarks
       T = len(lms) - 1
@@ -165,9 +167,21 @@ class VisualAudioSegmentalGMMDiscoverer:
         if (begin != 0 and begin < self.nSliceMin) or begin > T - self.nSliceMin:
           continue
         end = begin + self.nSliceMin
-        segId = int(end * (end - 1) / 2 + begin) 
+        segId = int(end * (end - 1) / 2 + begin)
         vecId = int(vecIds[segId])
         self.components.add_item(vecId, initPhones[begin]) 
+    '''
+    initPhones = KMeans(n_clusters=self.nPhones).fit_predict(self.components.X)
+    for ex, aSen in enumerate(self.aCorpus):
+      vecIds, lms = aSen.vecIds, aSen.landmarks
+      T = len(lms) - 1
+      for begin in range(T):
+        if (begin != 0 and begin < self.nSliceMin) or begin > T - self.nSliceMin:
+          continue
+        end = begin + self.nSliceMin
+        segId = int(end * (end - 1) / 2 + begin)
+        vecId = int(vecIds[segId])
+        self.components.add_item(vecId, initPhones[vecId]) 
 
   def trainUsingEM(self, numIterations=20, writeModel=False, warmStart=False, convergenceEpsilon=0.01, printStatus=True, debug=False):
     self.initializeModel()
@@ -271,12 +285,14 @@ class VisualAudioSegmentalGMMDiscoverer:
       prob_ph_given_z = np.asarray([[self.restaurants[k].prob(ph) for ph in range(self.nPhones)] for k in range(self.nWords)])
       for t in range(1, T+1): 
         for s in range(t):
-          dur = lms[t-1] - lms[s]
+          dur = lms[t] - lms[s]
           segId = int((t - 1) * t / 2 + s)
           vecId = int(vecIds[segId]) 
           log_prob_x_given_ph = np.ones(self.components.K_max)
-          log_prob_x_given_ph[:self.components.K] = dur * self.components.log_post_pred(vecId)
-          log_prob_x_given_ph[self.components.K:] = dur * self.components.log_prior(vecId) # TODO Double check this          
+          # log_prob_x_given_ph[:self.components.K] = dur * self.components.log_post_pred(vecId)
+          # log_prob_x_given_ph[self.components.K:] = dur * self.components.log_prior(vecId) # TODO Double check this          
+          log_prob_x_given_ph[:self.components.K] = - math.lgamma(t - s + 1) - 1 + self.components.log_post_pred(vecId) # Poisson length prior with mean 1 
+          log_prob_x_given_ph[self.components.K:] = - math.lgamma(t - s + 1) - 1 + self.components.log_prior(vecId)  
           scales[s, t-1] = logsumexp(log_prob_x_given_ph)  
           log_prob_ph_given_x = log_prob_x_given_ph - scales[s, t-1] # Scaled to become p(ph|x) 
           prob_x_t_given_z = prob_ph_given_z @ np.exp(log_prob_ph_given_x) # TODO Check underflow
@@ -302,14 +318,17 @@ class VisualAudioSegmentalGMMDiscoverer:
       if saveScale:  
         for t, (begin, end) in enumerate(zip(segmentation[:-1], segmentation[1:])):    
           segment = aSen.phones[t]
-          dur = lms[end-1] - lms[begin]
+          dur = lms[end] - lms[begin]
           segId = int((end - 1) * end / 2 + begin)
           vecId = int(vecIds[segId]) 
           
           if segment < self.components.K:
-            log_prob_x_given_ph = dur * self.components.log_post_pred_k(vecId, segment)
+            # log_prob_x_given_ph = dur * self.components.log_post_pred_k(vecId, segment)
+            log_prob_x_given_ph = - math.lgamma(end - begin + 1) - 1 + self.components.log_post_pred_k(vecId, segment) # Poisson length prior with mean 1 
           else:
-            log_prob_x_given_ph = dur * self.components.log_prior(vecId) # TODO Double check this
+            # log_prob_x_given_ph = dur * self.components.log_prior(vecId) # TODO Double check this
+            log_prob_x_given_ph = - math.lgamma(end - begin + 1) - 1 + self.components.log_prior(vecId) # TODO Double check this
+
           scales[t] = log_prob_x_given_ph
 
       prob_x_t_given_z = np.asarray(prob_x_t_given_z).T         
@@ -382,16 +401,22 @@ class VisualAudioSegmentalGMMDiscoverer:
       logws = []
       candidates = []
       lengths = []
+      durations = []
+      # XXX
+      '''
       for s in range(t):
         if (s != 0 and s < self.nSliceMin) or t - s < self.nSliceMin or t - s > self.nSliceMax:
           continue 
         lengths.append(t - s)
-        dur = lms[t-1] - lms[s]
+        dur = lms[t] - lms[s]
+        durations.append(dur)
         segId = int((t - 1) * t / 2 + s)
         vecId = int(vecIds[segId]) 
         log_prob_x_given_ph = np.ones(self.components.K_max)
-        log_prob_x_given_ph[:self.components.K] = dur * self.components.log_post_pred(vecId)
-        log_prob_x_given_ph[self.components.K:] = dur * self.components.log_prior(vecId)
+        # log_prob_x_given_ph[:self.components.K] = dur * self.components.log_post_pred(vecId)
+        # log_prob_x_given_ph[self.components.K:] = dur * self.components.log_prior(vecId)
+        log_prob_x_given_ph[:self.components.K] = - math.lgamma(t - s + 1) - 1 + self.components.log_post_pred(vecId) # Poisson length prior with mean 1 
+        log_prob_x_given_ph[self.components.K:] = - math.lgamma(t - s + 1) - 1 + self.components.log_prior(vecId) 
         if s == 0:
           logw = logsumexp(np.log(self.init[nState] @ probs_z_given_y @ prob_ph_given_z) + log_prob_x_given_ph)
         else:
@@ -399,14 +424,21 @@ class VisualAudioSegmentalGMMDiscoverer:
         logws.append(logw)
       wSegs = np.exp(np.asarray(logws) - logsumexp(logws)) # TODO Check underflow issues 
       i = draw(wSegs) 
+      '''
+      i = 0
+      lengths = [1]
+      durations = [lms[t] - lms[t - 1]]
       boundaries = [t - lengths[i]] + boundaries
-        
+  
       # Sample the phone label
       segId = int((t - 1) * t / 2 + t - lengths[i])
       vecId = int(vecIds[segId]) 
       log_prob_x_given_ph = np.ones(self.components.K_max) 
-      log_prob_x_given_ph[:self.components.K] = lengths[i] * self.components.log_post_pred(vecId)
-      log_prob_x_given_ph[self.components.K:] = lengths[i] * self.components.log_prior(vecId)
+      # log_prob_x_given_ph[:self.components.K] = durations[i] * self.components.log_post_pred(vecId)
+      # log_prob_x_given_ph[self.components.K:] = durations[i] * self.components.log_prior(vecId)
+      log_prob_x_given_ph[:self.components.K] = - math.lgamma(lengths[i] + 1) - 1 + self.components.log_post_pred(vecId)
+      log_prob_x_given_ph[self.components.K:] = - math.lgamma(lengths[i] + 1) - 1 + self.components.log_prior(vecId)
+
       logws = []
       logws = np.log(alphas[t-lengths[i]-1] @ self.trans[nState] @ probs_z_given_y @ prob_ph_given_z) + log_prob_x_given_ph
       wPhs = np.exp(logws - logsumexp(logws)) # TODO Check underflow issues 
@@ -414,7 +446,7 @@ class VisualAudioSegmentalGMMDiscoverer:
       phones = [ph] + phones
 
       t = t - lengths[i]
-
+    
     return phones, boundaries
  
   # Inputs:
@@ -768,14 +800,15 @@ def draw(ws):
     return i
 
 if __name__ == '__main__':
-  tasks = [1]
+  tasks = [0]
   #--------------------------#
   # Word discovery on MSCOCO #
   #--------------------------#
   if 0 in tasks:      
-    speechFeatureFile = '../data/mscoco2k'
+    speechFeatureFile = '../data/mscoco2k_gold_ctc'
     imageFeatureFile = '../data/mscoco2k_concept_gaussian_vectors.npz'
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 1., 'n_slices_min': 3, 'n_slices_max': 11, 'width': 0.1}
+    # XXX
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'learning_rate': 0.1, 'alpha_0': 1., 'n_slices_min': 1, 'n_slices_max': 1, 'width': 0.1}
     modelName = 'exp/june22_mscoco2k_vasgmm_res34_lr%.5f/vasgmm' % modelConfigs['learning_rate'] 
     print(modelName)
     model = VisualAudioSegmentalGMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
@@ -788,13 +821,13 @@ if __name__ == '__main__':
     modelName = 'exp/june22_tiny_vasgmm/vasgmm'
     speechFeatureFile = '../data/tiny'
     embedding_mats = {
-      'arr_1': [[[1, 0, 0], [0, 1, 0]], 
-                [[-1, -1, -1], [1./2, 1./2, 0]]],
-      'arr_2': [[[0, 1, 0], [0, 0, 1]], 
-                [[-1, -1, -1], [0, 1./2, 1./2]]],
-      'arr_3': [[[1, 0, 0], [0, 0, 1]],
-                [[-1, -1, -1], [1./2, 0, 1./2]]
-                 }
+      'arr_1': [[[1, 0, 0], [0, 1, 0]],\
+                [[-1, -1, -1], [1./2, 1./2, 0]]],\
+      'arr_2': [[[0, 1, 0], [0, 0, 1]],\
+                [[-1, -1, -1], [0, 1./2, 1./2]]],\
+      'arr_3': [[[1, 0, 0], [0, 0, 1]],\
+                [[-1, -1, -1], [1./2, 0, 1./2]]]
+      }
     vec_ids = {'arr_'+str(i): np.asarray([0, 1, 2]) for i in range(3)}
     landmarks = {'arr_'+str(i): np.asarray([0, 1, 2]) for i in range(3)}
     np.savez(speechFeatureFile + '_embedding_mats.npz', **embedding_mats)
