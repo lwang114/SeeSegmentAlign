@@ -266,7 +266,7 @@ class MultimodalUnigramAcousticWordseg(object):
         
         # Generate unsupervised transcripts as target sentences to the aligner
         a_sents = [np.asarray(self.get_unsup_transcript_i(i_utt)) for i_utt in range(self.utterances.D)]
-        print('a_sents[:10]', a_sents[:10])
+        # print('a_sents[:10]', a_sents[:10])
 
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
@@ -311,7 +311,7 @@ class MultimodalUnigramAcousticWordseg(object):
             if self.acoustic_model.components.K != K_prev:
               self.alignment_model.reset_i(i)
               # print('Component %d is deleted' % k_i) # XXX
-              self.alignment_model.move_counts(K_prev, k_i)
+              self.alignment_model.move_counts(K_prev-1, k_i)
 
         self.alignment_model.reset_i(i)
         log_prob_z = self.alignment_model.log_prob_f_given_y_i(i)
@@ -395,6 +395,7 @@ class MultimodalUnigramAcousticWordseg(object):
         # Update alignment parameters
         src_sent = np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i]])
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))
+        # print('example, trg_sent[:10]', i, trg_sent[:10])
         self.alignment_model.update_counts_i(i, src_sent, trg_sent)
 
         # Debug trace
@@ -630,8 +631,8 @@ class MultimodalUnigramAcousticWordseg(object):
       for i, (a, tr, b) in enumerate(zip(alignments, transcripts, boundaries)):
         b_frames = np.where(b != 0)[0].tolist()
         a_frames = [] 
-        for begin, end in zip(b_frames[:-1], b_frames[1:]):
-          a_frames += a * (end - begin)
+        for a_t, begin, end in zip(a, b_frames[:-1], b_frames[1:]):
+          a_frames += [a_t] * (end - begin)
         results.append(
           { 'index': i,\
             'alignment': a_frames,\
@@ -677,8 +678,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        if i_utt > 29:
-          break
+        # if i_utt > 29:
+        #   break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 
