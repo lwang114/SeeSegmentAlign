@@ -266,11 +266,12 @@ class MultimodalUnigramAcousticWordseg(object):
         
         # Generate unsupervised transcripts as target sentences to the aligner
         a_sents = [np.asarray(self.get_unsup_transcript_i(i_utt)) for i_utt in range(self.utterances.D)]
-        # print('a_sents[:10]', a_sents[:10])
+        print('a_sents[:10]', a_sents[:10])
 
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
         self.alignment_model.update_counts()
+        print('I have reached here')
 
     def set_fb_type(self, fb_type):
         self.fb_type = fb_type
@@ -395,7 +396,7 @@ class MultimodalUnigramAcousticWordseg(object):
         # Update alignment parameters
         src_sent = np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i]])
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))
-        # print('example, trg_sent[:10]', i, trg_sent[:10])
+        print('example, trg_sent[:10]', i, trg_sent[:10])
         self.alignment_model.update_counts_i(i, src_sent, trg_sent)
 
         # Debug trace
@@ -590,7 +591,7 @@ class MultimodalUnigramAcousticWordseg(object):
         return p_continue
 
     def get_unsup_transcript_i(self, i):
-        """Return a list of the components for current segmentation of `i`."""
+        """Return a list of the components for current segmentation of `i`.""" 
         return list(
             self.acoustic_model.components.get_assignments(self.utterances.get_segmented_embeds_i(i))
             )
@@ -629,9 +630,9 @@ class MultimodalUnigramAcousticWordseg(object):
 
       results = []
       for i, (a, tr, b) in enumerate(zip(alignments, transcripts, boundaries)):
-        b_frames = np.where(b != 0)[0].tolist()
+        b_frames = np.append([0], np.where(b != 0)[0] + 1).tolist()
         a_frames = [] 
-        for a_t, begin, end in zip(a, b_frames[:-1], b_frames[1:]):
+        for a_t, begin, end in zip(a, b_frames[:-1], b_frames[1:]): 
           a_frames += [a_t] * (end - begin)
         results.append(
           { 'index': i,\
@@ -678,8 +679,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        # if i_utt > 29:
-        #   break
+        if i_utt > 29:
+          break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 
