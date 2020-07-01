@@ -4,6 +4,8 @@ import numpy as np
 import json
 from segmentalist.segmentalist.unigram_acoustic_wordseg import *
 from segmentalist.segmentalist.kmeans_acoustic_wordseg import * 
+# from segmentalist.segmentalist.multimodal_kmeans_acoustic_wordseg import * 
+# from segmentalist.segmentalist.multimodal_unigram_acoustic_wordseg import *
 # from bucktsong_segmentalist.downsample.downsample import *   
 import segmentalist.segmentalist.fbgmm as fbgmm
 # import segmentalist.segmentalist.mfbgmm as mfbgmm 
@@ -70,7 +72,6 @@ parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
 parser.add_argument('--use_null', action='store_true')
-parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Number of Gibbs sampling iterations')
 args = parser.parse_args()
 print(args)
 
@@ -97,7 +98,7 @@ if args.dataset == 'flickr':
   gold_alignment_file = "../data/flickr30k/audio_level/flickr30k_gold_alignment.json"
 elif args.dataset == 'mscoco2k':
   datasetpath = 'data/'
-  datapath = datasetpath + 'mscoco2k_%s_unsegmented.npz' % args.feat_type
+  datapath = datasetpath + 'mscoco2k_%s.npz' % args.feat_type
   # datapath = '../data/mscoco/mscoco2k_kamper_embeddings.npz' 
   image_concept_file = datasetpath + 'mscoco2k_image_captions.txt'
   concept2idx_file = datasetpath + 'concept2idx.json'
@@ -129,23 +130,33 @@ elif args.feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-start_step = 1 
+# Generate acoustic embeddings, vec_ids_dict and durations_dict 
+audio_feats = np.load(datapath)
+f = open(image_concept_file, "r")
+image_concepts = []
+for line in f:
+  image_concepts.append(line.strip().split())
+f.close()
+
+with open(concept2idx_file, "r") as f:
+  concept2idx = json.load(f)
+
+embedding_mats = {}
+concept_ids = []
+vec_ids_dict = {}
+durations_dict = {}
+landmarks_dict = {}
+if args.landmarks_file: 
+  landmarks_dict = np.load(args.landmarks_file)
+  landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
+else:
+  landmark_ids = []
+
+start_step = 0 
+print(len(list(audio_feats.keys())))
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
-  # Generate acoustic embeddings, vec_ids_dict and durations_dict 
-  audio_feats = np.load(datapath)
-  print(len(list(audio_feats.keys())))
-  embedding_mats = {}
-  concept_ids = []
-  vec_ids_dict = {}
-  durations_dict = {}
-  landmarks_dict = {}
-  if args.landmarks_file: 
-    landmarks_dict = np.load(args.landmarks_file)
-    landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
-  else:
-    landmark_ids = []
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
@@ -170,6 +181,8 @@ if start_step == 0:
     feat_dim = args.mfcc_dim 
     assert args.embed_dim % feat_dim == 0   
     embed_mat = np.zeros(((args.n_slices_max - max(args.n_slices_min, 1) + 1)*n_slices, args.embed_dim))
+    if args.am_class.split("-")[0] == "multimodal":
+      concept_ids_i = [[] for _ in range((args.n_slices_max - max(args.n_slices_min, 1) + 1)*n_slices)] 
     vec_ids = -1 * np.ones((n_slices * (1 + n_slices) / 2,))
     durations = np.nan * np.ones((n_slices * (1 + n_slices) / 2,))
 
@@ -188,6 +201,9 @@ if start_step == 0:
             print('i_ex, start_frame, end_frame: ', i_ex, start_frame, end_frame)
             print('feat_mat[start_frame:end_frame].shape: ', feat_mat[start_frame:end_frame+1].shape)
             embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args) 
+            if args.am_class.split("-")[0] == "multimodal":
+              concept_ids_i[i_embed] = [concept2idx[NULL]] + [concept2idx[c] for c in image_concepts[i_ex]]
+           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
 
@@ -201,9 +217,22 @@ if start_step == 0:
   np.savez(args.exp_dir+"landmarks_dict.npz", **landmarks_dict)  
       
   print("Take %0.5f s to finish extracting embedding vectors !" % (time.time()-begin_time))
+  if args.am_class.split("-")[0] == "multimodal":
+    with open(args.exp_dir+"image_concepts.json", "w") as f:
+      json.dump(concept_ids, f, indent=4, sort_keys=True)
+    
+    with open(args.exp_dir+"concept_names.json", "w") as f:
+      concept_names = [c for c, i in sorted(concept2idx.items(), key=lambda x:x[1])]
+      json.dump(concept_names, f, indent=4, sort_keys=True)
 
 if start_step <= 1:
-  begin_time = time.time()        
+  begin_time = time.time()
+  if args.am_class.split("-")[0] == "multimodal":
+    with open(args.exp_dir+"image_concepts.json", "r") as f:
+      concepts = json.load(f) 
+    with open(args.exp_dir+"concept_names.json", "r") as f:
+      concept_names = json.load(f)
+        
   embedding_mats = np.load(args.exp_dir+'embedding_mats.npz')
   vec_ids_dict = np.load(args.exp_dir+'vec_ids_dict.npz')
   durations_dict = np.load(args.exp_dir+"durations_dict.npz")
@@ -232,7 +261,7 @@ if start_step <= 1:
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
     segmenter = UnigramAcousticWordseg(
       am_class, am_alpha, am_K, am_param_prior, embedding_mats, vec_ids_dict, 
-      durations_dict, landmarks_dict, p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
+      durations_dict, landmarks_dict, p_boundary_init=0.1, beta_sent_boundary=-1, 
       init_am_assignments='one-by-one',
       n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max
       ) 
@@ -262,6 +291,9 @@ if start_step <= 1:
     np.save(args.exp_dir + "mean_numerators.npy", mean_numerators)
     np.save(args.exp_dir + "counts.npy", counts)
 
+  if args.am_class.split("-")[0] == "multimodal":
+    segmenter.get_alignments(out_file_prefix=args.exp_dir+"flickr30k_pred_alignment")
+
 if start_step <= 2:
   convert_boundary_to_segmentation(pred_boundary_file, pred_landmark_segmentation_file)
   if args.landmarks_file:
@@ -273,7 +305,7 @@ if start_step <= 2:
   # segmentation_retrieval_metrics(pred_segs, gold_segs)    
 
 if start_step <= 3:
-  # TODO Work for MSCOCO only, need to make it more general
+  # TODO Work for MSCOCO only
   if args.am_class.split('-')[0] != 'multimodal':
     # landmark_segments = np.load(pred_landmark_segmentation_file)
     lm_boundaries = np.load(pred_boundary_file)
