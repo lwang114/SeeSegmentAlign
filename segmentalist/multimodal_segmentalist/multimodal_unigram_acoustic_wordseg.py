@@ -590,7 +590,7 @@ class MultimodalUnigramAcousticWordseg(object):
         return p_continue
 
     def get_unsup_transcript_i(self, i):
-        """Return a list of the components for current segmentation of `i`."""
+        """Return a list of the components for current segmentation of `i`.""" 
         return list(
             self.acoustic_model.components.get_assignments(self.utterances.get_segmented_embeds_i(i))
             )
