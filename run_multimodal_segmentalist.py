@@ -70,7 +70,9 @@ parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file w
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
 parser.add_argument('--use_null', action='store_true')
 parser.add_argument('--n_iter', type=int, default=300, help='Number of Gibbs sampling iterations')
-parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Number of Gibbs sampling iterations')
+parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Initial boundary probabilities')
+parser.add_argument('--time_power_term', type=float, default=1., help='Scaling of the per-frame scaling')
+
 args = parser.parse_args()
 print(args)
 
@@ -124,7 +126,7 @@ if args.landmarks_file:
 else:
   landmark_ids = []
 
-start_step = 0
+start_step = 2
 print(len(list(audio_feats.keys())))
 if start_step == 0:
   print("Start extracting acoustic embeddings")
@@ -221,8 +223,7 @@ if start_step <= 2:
     am_K = args.am_K
     m_0 = np.zeros(D)
     k_0 = 0.05
-    S_0 = 1.0*np.ones(D)
-    # S_0 = 0.002*np.ones(D)
+    S_0 = 0.002*np.ones(D)
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
   else:
     raise ValueError("am_class %s is not supported" % args.am_class)
@@ -246,7 +247,8 @@ if start_step <= 2:
       aligner_class,
       a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
       v_embedding_mats, v_vec_ids_dict,
-      p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
+      p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1,
+      time_power_term=args.time_power_term,
       init_am_assignments='one-by-one', 
       n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
       model_name=args.exp_dir+'mbes_gmm'
