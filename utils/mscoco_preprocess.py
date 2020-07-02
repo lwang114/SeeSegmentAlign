@@ -65,9 +65,7 @@ class MSCOCO_Preprocessor():
       bboxes = []
       
       for ann in anns:
-        cat = coco_api.loadCats(ann['category_id'])[0]['name']
-        if DEBUG:
-          print(ann)
+        cat = coco_api.loadCats(ann['category_id'])[0]['name'] 
         x, y, w, h = ann['bbox']
         # If the concept class is a compound, combine the words
         if len(cat.split()) > 1:
@@ -895,20 +893,19 @@ def is_nonspeech(phn):
   return 1
 
 if __name__ == '__main__':
-  tasks = [1]
-  instance_file = 'annotations/instances_train2014.json'
-  caption_file = 'annotations/captions_train2014.json' 
-  speech_file = '/home/lwang114/data/mscoco/audio/train2014/train_2014.sqlite3'
-  json_file = 'train_mscoco_info_text_image.json'
-  image_base_path = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014/' 
-  #'/home/lwang114/data/mscoco/train2014/' 
-  #'/home/lwang114/data/mscoco/val2014/' 
+  tasks = [0, 1]
+  instance_file = 'annotations/instances_val2014.json'
+  caption_file = 'annotations/captions_val2014.json' 
+  speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
+  json_file = 'val_mscoco_info_text_image.json'
+  image_base_path = '/home/lwang114/data/mscoco/val2014/' 
   preproc = MSCOCO_Preprocessor(instance_file, caption_file, speech_file)
   if 0 in tasks:
     preproc.extract_info(json_file)
     # XXX
-    caption_file = 'annotations/captions_val2014.json' 
-    speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
+    # instance_file = 'annotations/instances_val2014.json'
+    # caption_file = 'annotations/captions_val2014.json' 
+    # speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
     #'/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
     instance_file = 'annotations/instances_val2014.json'
     json_file = 'val_mscoco_info_text_image.json'
