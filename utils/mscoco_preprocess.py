@@ -313,7 +313,7 @@ class MSCOCO_Preprocessor():
       json.dump(image_dict, f, indent=4, sort_keys=True)
 
   def extract_image_audio_subset_power_law(self, file_prefix='mscoco_subset', power_law_factor=0., subset_size=8000, n_concepts_per_example=5): 
-    with open(file_prefix+'_concept2imgid.json', 'r') as f: 
+    with open(file_prefix+'power=%d_concept2imgid.json' % power_law_factor, 'r') as f: 
       concept2ids = json.load(f)
     with open(file_prefix+'_concept_counts.json', 'r') as f: 
       concept_counts_all = json.load(f)
@@ -895,18 +895,18 @@ def is_nonspeech(phn):
   return 1
 
 if __name__ == '__main__':
-  tasks = [6, 7]
+  tasks = [1]
   instance_file = 'annotations/instances_train2014.json'
   caption_file = 'annotations/captions_train2014.json' 
   speech_file = '/home/lwang114/data/mscoco/audio/train2014/train_2014.sqlite3'
   json_file = 'train_mscoco_info_text_image.json'
-  image_base_path = '/home/lwang114/data/mscoco/train2014/' 
+  image_base_path = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014/' 
+  #'/home/lwang114/data/mscoco/train2014/' 
   #'/home/lwang114/data/mscoco/val2014/' 
   preproc = MSCOCO_Preprocessor(instance_file, caption_file, speech_file)
   if 0 in tasks:
     preproc.extract_info(json_file)
     # XXX
-    image_base_path = '/home/lwang114/data/mscoco/val2014/' 
     caption_file = 'annotations/captions_val2014.json' 
     speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
     #'/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
@@ -915,17 +915,17 @@ if __name__ == '__main__':
     preproc = MSCOCO_Preprocessor(instance_file, caption_file, speech_file)
     preproc.extract_info(json_file)
   if 1 in tasks:
-    preproc.extract_image_audio_subset(json_file, image_base_path=image_base_path)
     # preproc.extract_image_audio_subset_power_law()
     # preproc.extract_image_audio_curriculum_power_law()
     # preproc.extract_image_audio_phone_level_subset('../data/mscoco/mscoco_subset_concept_info_syllabus_0.json', out_file_prefix='mscoco_subset_phone_syllabus_0')
     # preproc.extract_image_audio_phone_level_subset('../data/mscoco/mscoco_subset_concept_info_syllabus_1.json', out_file_prefix='mscoco_subset_phone_syllabus_1') 
+    power_law_factor = 1.
     max_num_per_class = 2000 
     subset_size = int(max_num_per_class * 65 / 5)
     file_prefix = 'mscoco_subset_%dk' % (int((max_num_per_class * 65) / 1000)) 
     preproc.extract_image_audio_subset(json_file, image_base_path=image_base_path, max_num_per_class=max_num_per_class, file_prefix=file_prefix)
     preproc.extract_image_audio_subset_power_law(file_prefix=file_prefix, subset_size=subset_size)
-    preproc.extract_image_audio_phone_level_subset('../data/mscoco/%s_concept_info_power_law.json' % file_prefix, out_file_prefix='%s_phone_power_law' % file_prefix)
+    # preproc.extract_image_audio_phone_level_subset('../data/mscoco/%s_concept_info_power_law.json' % file_prefix, out_file_prefix='%s_phone_power_law' % file_prefix)
   if 2 in tasks:
     max_num_per_class = 2000 
     subset_size = int(max_num_per_class * 65 / 5)
