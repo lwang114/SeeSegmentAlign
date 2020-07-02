@@ -220,7 +220,7 @@ class MSCOCO_Preprocessor():
     # TODO: compare wordnet similarity
    
   def extract_image_audio_subset(self, json_file, max_num_per_class=200, 
-                                image_base_path='./', audio_base_path='./', file_prefix='mscoco_subset'):
+                                image_base_path='./', audio_base_path='./', file_prefix='mscoco_subset', repeated_image=True):
     with open(json_file, 'r') as f:
       pair_info = json.load(f)
 
@@ -239,16 +239,48 @@ class MSCOCO_Preprocessor():
       img = Image.open(img_filename)    
        
       word_aligns = pair['word_alignments']
-          
-      for spk_id, capt_id, caption, word_align in zip(spk_ids, capt_ids, pair['caption_texts'], word_aligns):
-        caption = word_tokenize(caption)
-        concept2bbox = {}
+      
+      if repeated_image:
+        for spk_id, capt_id, caption, word_align in zip(spk_ids, capt_ids, pair['caption_texts'], word_aligns):
+          caption = word_tokenize(caption)
+          concept2bbox = {}
 
+          for bb in bboxes:
+            concept = bb[0]
+            c = concept.split()[-1]
+            x, y, w, h = int(bb[1]), int(bb[2]), int(bb[3]), int(bb[4])
+            word, start, end = self.find_concept_occurrence_time(c, word_align)    
+
+            if start != -1:
+              # Extract image regions with bounding boxes
+              if len(np.array(img).shape) == 2:
+                region = np.tile(np.array(img)[y:y+h, x:x+w, np.newaxis], (1, 1, 3))
+              else:
+                region = np.array(img)[y:y+h, x:x+w, :]
+              
+              index = sum(concept_counts.values())
+              image_dict[img_id+'_'+str(index)] = bb
+              phone_dict[capt_id+'_'+str(index)] = self.word_to_phones([word])
+              
+              if c not in concept2id:
+                concept2id[c] = [[img_id+'_'+str(index), capt_id+'_'+str(index), start, end, spk_id]]
+              else:
+                concept2id[c].append([img_id+'_'+str(index), capt_id+'_'+str(index), start, end, spk_id])
+              if c not in concept_counts:
+                concept_counts[c] = 1
+              elif concept_counts[c] < max_num_per_class:
+                concept_counts[c] += 1
+      else:    
+        capt_id = capt_ids[0]
+        spk_id = spk_ids[0]
+        caption = pair['caption_texts'][0]
+        word_align = word_aligns[0]
+        
         for bb in bboxes:
           concept = bb[0]
           c = concept.split()[-1]
+          word, start, end = self.find_concept_occurrence_time(c, word_align)
           x, y, w, h = int(bb[1]), int(bb[2]), int(bb[3]), int(bb[4])
-          word, start, end = self.find_concept_occurrence_time(c, word_align)    
 
           if start != -1:
             # Extract image regions with bounding boxes
@@ -270,6 +302,7 @@ class MSCOCO_Preprocessor():
             elif concept_counts[c] < max_num_per_class:
               concept_counts[c] += 1
 
+
     with open(file_prefix+'_concept_counts.json', 'w') as f:
       json.dump(concept_counts, f, indent=4, sort_keys=True)
     with open(file_prefix+'_concept2imgid.json', 'w') as f:
@@ -279,7 +312,7 @@ class MSCOCO_Preprocessor():
     with open(file_prefix+'_imgid2bbox.json', 'w') as f:
       json.dump(image_dict, f, indent=4, sort_keys=True)
 
-  def extract_image_audio_subset_power_law(self, file_prefix='mscoco_subset', power_law_factor=1., subset_size=8000, n_concepts_per_example=5): 
+  def extract_image_audio_subset_power_law(self, file_prefix='mscoco_subset', power_law_factor=0., subset_size=8000, n_concepts_per_example=5): 
     with open(file_prefix+'_concept2imgid.json', 'r') as f: 
       concept2ids = json.load(f)
     with open(file_prefix+'_concept_counts.json', 'r') as f: 
@@ -294,9 +327,11 @@ class MSCOCO_Preprocessor():
     vs = np.zeros((n_concept,))
     # TODO: Control the power law to be propto 1/n**alpha
     for i in range(n_concept):
-      vs[i] = 1. / (n_concept-i) ** power_law_factor
-    priors = compute_stick_break_prior(vs)
-    
+      vs[i] = 1. / (i + 1) ** power_law_factor
+    # vs[i] = 1. / (n_concept-i) ** power_law_factor
+    # priors = compute_stick_break_prior(vs)
+    priors = vs / np.sum(vs)
+
     image_dict = {}
     concept_dict = {}
     phone_dict = {}
