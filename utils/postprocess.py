@@ -69,11 +69,14 @@ def alignment_to_word_units(alignment_file, phone_corpus,
     for line in f_c:
       v_corpus.append(line.strip().split())
   
+  concept2id = {}
   if concept2id_file:
     with open(concept2id_file, 'r') as f:
       concept2id = json.load(f)
-  else:
-    concept2id = {}
+  
+  lms = None
+  if landmark_file:
+    lms = np.load(landmark_file)
   
   with open(alignment_file, 'r') as f:
     alignments = json.load(f)
@@ -96,27 +99,45 @@ def alignment_to_word_units(alignment_file, phone_corpus,
     else:
       image_concepts = align_info['image_concepts']
     alignment = align_info['alignment']
-    pair_id = 'pair_' + str(align_info['index'])
+    pair_id = 'arr_' + str(align_info['index']) # XXX
+    lm_id = 'arr_'+str(ex)
+    if lms:
+      lm = np.append([0], lms[lm_id])
     # print(pair_id) 
     prev_align_idx = -1
     start = 0
     for t, align_idx in enumerate(alignment):
       if t == 0:
         prev_align_idx = align_idx
-      
-      phn_units.append('%s %d %d %s\n' % (pair_id, t, t + 1, a_sent[t]))
+  
+      if not lms:    
+        phn_units.append('%s %d %d %s\n' % (pair_id, t, t + 1, a_sent[t]))
+      else:
+        phn_units.append('%s %d %d %s\n' % (pair_id, lm[t], lm[t+1], a_sent[t]))
+
       if prev_align_idx != align_idx:
         if not include_null and prev_align_idx == 0:
           prev_align_idx = align_idx
           start = t
           continue
-        word_units.append('%s %d %d %s\n' % (pair_id, start, t, image_concepts[prev_align_idx]))
+
+        if not lms:
+          word_units.append('%s %d %d %s\n' % (pair_id, start, t, image_concepts[prev_align_idx]))
+        else:
+          lm_id = 'arr_'+str(ex)
+          word_units.append('%s %d %d %s\n' % (pair_id, lm[start], lm[t], image_concepts[prev_align_idx]))
+
         prev_align_idx = align_idx
         start = t
       elif t == len(alignment) - 1:
         if not include_null and prev_align_idx == 0:
           continue
-        word_units.append('%s %d %d %s\n' % (pair_id, start, t + 1, image_concepts[prev_align_idx]))
+
+        if not lms:
+          word_units.append('%s %d %d %s\n' % (pair_id, start, t + 1, image_concepts[prev_align_idx]))
+        else:
+          lm_id = 'arr_'+str(ex)
+          word_units.append('%s %d %d %s\n' % (pair_id, lm[start], lm[t+1], image_concepts[prev_align_idx]))
     
   with open(word_unit_file, 'w') as f:
     f.write(''.join(word_units))
@@ -147,7 +168,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
   for ex, (align_info, a_sent) in enumerate(zip(alignments, a_corpus)):
     if not ex in test_indices:
       continue
-    pair_id = 'pair_' + str(align_info['index'])
+    pair_id = 'arr_' + str(align_info['index']) # XXX
     alignment = align_info['alignment']
     
     # Cases: 
@@ -235,7 +256,7 @@ def segmentation_to_word_classes(segmentation_file,
       if not ex in test_indices:
         continue
       
-      pair_id = 'pair_' + str(ex)  
+      pair_id = 'arr_' + str(ex)  
       print(pair_id)
       start = 0
       for t, seg in enumerate(segmentation.split()):
@@ -269,19 +290,31 @@ def segmentation_to_word_classes(segmentation_file,
   else:
     with open(segmentation_file, 'r') as f:
       data_info = json.load(f)
+    
+    if 'phones' in data_info[0]:
       segmentations = [datum_info['segmentation'] for datum_info in data_info]
       phones = [datum_info['phones'] for datum_info in data_info]
-
-    if not split_file:
-      test_indices = list(range(len(segmentations)))
       
-    for ex, (sent, segmentation) in enumerate(zip(phones, segmentations)):
-      pair_id = 'pair_' + str(ex)
-      for seg, start, end in zip(sent, segmentation[:-1], segmentation[1:]):
-        if not seg in word_units:
-          word_units[seg] = ['%s %d %d\n' % (pair_id, start, end)]
-        else:
-          word_units[seg].append('%s %d %d\n' % (pair_id, start, end)) 
+      if not split_file:
+        test_indices = list(range(len(segmentations)))
+      
+      for ex, (sent, segmentation) in enumerate(zip(phones, segmentations)):
+        pair_id = 'arr_' + str(ex)
+        for seg, start, end in zip(sent, segmentation[:-1], segmentation[1:]):
+          if not seg in word_units:
+            word_units[seg] = ['%s %d %d\n' % (pair_id, start, end)]
+          else:
+            word_units[seg].append('%s %d %d\n' % (pair_id, start, end)) 
+    if 'image_concepts' in data_info[0]:
+      for ex, datum_info in enumerate(data_info):
+        pair_id = 'arr_' + str(ex)
+        labels = datum_info['image_concepts']
+        segmentation = datum_info['segmentation']
+        for label, start, end in zip(labels, segmentation[:-1], segmentation[1:]):
+          if not label in word_units:
+            word_units[label] = ['%s %d %d\n' % (pair_id, start, end)]
+          else:
+            word_units[label].append('%s %d %d\n' % (pair_id, start, end)) 
 
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):

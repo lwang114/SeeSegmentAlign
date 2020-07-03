@@ -10,10 +10,11 @@ from postprocess import *
 import argparse
 
 EPS = 1e-20
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--exp_dir', type=str, default='./', help='Experimental directory containing the alignment files')
 parser.add_argument('--dataset', choices=['mscoco2k', 'mscoco20k', 'flickr'])
 parser.add_argument('--nfolds', type=int, default=1)
+parser.add_argument('--result_type', type=str, choices={'alignment', 'segment'}, default='alignment', help='Type of result files')
 args = parser.parse_args()
 
 with open(args.exp_dir+'model_names.txt', 'r') as f:
@@ -36,7 +37,7 @@ elif args.dataset == 'flickr':
 with open(args.exp_dir+'model_names.txt', 'r') as f:
   model_names = f.read().strip().split()
 
-tasks = [2]
+tasks = [0, 1]
 tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
 #--------------------------#
 # Extract Discovered Words #
@@ -66,7 +67,10 @@ if 0 in tasks:
   
       for i, (model_name, pred_alignment_file) in enumerate(zip(model_names, pred_alignment_files)):
         discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name)
-        alignment_to_word_classes(pred_alignment_file, phone_corpus, word_class_file=discovered_word_file, include_null=True)
+        if args.result_type == 'alignment':
+          alignment_to_word_classes(pred_alignment_file, phone_corpus, word_class_file=discovered_word_file, include_null=True)
+        if args.result_type == 'segment':
+          segmentation_to_word_classes(pred_alignment_file, word_class_file=discovered_word_file, include_null=True)
 
 #---------------------------#
 # Word Discovery Evaluation #
