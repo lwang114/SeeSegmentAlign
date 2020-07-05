@@ -249,10 +249,7 @@ class MultimodalUnigramAcousticWordseg(object):
 
             # Assign the embeddings one-by-one
             for i_embed in init_embeds:
-                # TODO log_prob_z = self.alignment_model.log_prob_f_given_y_i(i)
-                # print i_embed
                 self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, log_prob_z=[])
-
         else:
             assert False, "invalid value for `init_am_assignments`: " + init_am_assignments
         
@@ -271,7 +268,6 @@ class MultimodalUnigramAcousticWordseg(object):
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
         self.alignment_model.update_counts()
-        print('I have reached here')
 
     def set_fb_type(self, fb_type):
         self.fb_type = fb_type
@@ -284,7 +280,7 @@ class MultimodalUnigramAcousticWordseg(object):
         else:
             assert False, "invalid `fb_type`: " + fb_type
 
-    def gibbs_sample_i(self, i, anneal_temp=1, anneal_gibbs_am=False):
+    def gibbs_sample_i(self, i, anneal_temp=1, anneal_gibbs_am=False, log_prob_z=[]):
         """
         Block Gibbs sample new boundaries and embedding assignments for
         utterance `i`.
@@ -310,8 +306,7 @@ class MultimodalUnigramAcousticWordseg(object):
             self.acoustic_model.components.del_item(i_embed)
             # If a cluster is deleted, move counts of the replacing cluster to the positions of the counts for the replaced cluster (which ideally are zeros) 
             if self.acoustic_model.components.K != K_prev:
-              self.alignment_model.reset_i(i)
-              # print('Component %d is deleted' % k_i) # XXX
+              self.alignment_model.reset_i(i) 
               self.alignment_model.move_counts(K_prev-1, k_i)
 
         self.alignment_model.reset_i(i)
@@ -378,7 +373,7 @@ class MultimodalUnigramAcousticWordseg(object):
             # logger.debug("sum(log_margs*lengths): " + str(np.sum(log_margs*np.array(lengths))))
             logger.debug("log p(X): " + str(self.acoustic_model.log_marg()))
             # npt.assert_almost_equal(np.sum(log_margs*np.array(lengths)), log_prob)
-
+        
         # Assign new embeddings to components in `acoustic_model`
         for i_embed in self.utterances.get_segmented_embeds_i(i):
             if i_embed == -1:
@@ -486,10 +481,16 @@ class MultimodalUnigramAcousticWordseg(object):
             print('Iteration %d' % i_iter)
             start_time = time.time()
 
+            log_prob_zs = []
+            for i_utt in range(self.utterances.D):
+                log_prob_z = self.alignment_model.log_prob_f_given_y_i(i_utt)
+                n_embeds = len(self.utterances.get_segmented_embeds_i(i_utt))
+                log_prob_zs.append(np.tile(log_prob_z, (n_embeds, 1)))
+
             # Perform intermediate acoustic model re-sampling
             if am_n_iter > 0:
                 self.acoustic_model.gibbs_sample(
-                    am_n_iter, consider_unassigned=False
+                    am_n_iter, consider_unassigned=False, log_prob_zs=deepcopy(log_prob_zs)
                     )
 
             # Get anneal temperature
@@ -548,6 +549,8 @@ class MultimodalUnigramAcousticWordseg(object):
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else:
+                # XXX
+                # vec_embed_log_probs[i] -= durations[i]
                 vec_embed_log_probs[i] *= durations[i]**self.time_power_term
 
         # # Scale log marginals by number of frames

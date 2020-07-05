@@ -16,6 +16,7 @@ from gaussian_components_diag import GaussianComponentsDiag
 from gaussian_components_fixedvar import GaussianComponentsFixedVar
 import _cython_utils
 import utils
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
@@ -287,10 +288,10 @@ class FBGMM(object):
         log_prob_z[self.components.K:] += self.components.log_prior(i)
         return _cython_utils.logsumexp(log_prob_z)
         # return logsumexp(log_prob_z)
-
+ 
     def gibbs_sample(self, n_iter, consider_unassigned=True,
             anneal_schedule=None, anneal_start_temp_inv=0.1,
-            anneal_end_temp_inv=1, n_anneal_steps=-1): #, lms=1.0):
+            anneal_end_temp_inv=1, n_anneal_steps=-1, log_prob_zs=[]): #, lms=1.0):
         """
         Perform `n_iter` iterations Gibbs sampling on the FBGMM.
 
@@ -321,7 +322,7 @@ class FBGMM(object):
             is described by its key and statistics are given in a list which
             covers the Gibbs sampling iterations.
         """
-
+        
         # Setup record dictionary
         record_dict = {}
         record_dict["sample_time"] = []
@@ -350,6 +351,9 @@ class FBGMM(object):
             anneal_list = np.repeat(anneal_list, n_iter_per_step)
             get_anneal_temp = iter(anneal_list)
 
+        if len(log_prob_zs):
+            log_prob_zs = np.concatenate(log_prob_zs, axis=0)
+
         # Loop over iterations
         for i_iter in range(n_iter):
 
@@ -357,6 +361,7 @@ class FBGMM(object):
             anneal_temp = next(get_anneal_temp, anneal_end_temp_inv)
 
             # Loop over data items
+            count = 0
             for i in xrange(self.components.N):
 
                 # Cache some old values for possible future use
@@ -371,11 +376,16 @@ class FBGMM(object):
 
                 # Compute log probability of `X[i]` belonging to each component
                 # (24.26) in Murphy, p. 843
-                log_prob_z = self.lms * (
-                    np.ones(self.components.K_max)*np.log(
-                        float(self.alpha)/self.components.K_max + self.components.counts
-                        )
-                    )
+                if not len(log_prob_zs):
+                  log_prob_z = self.lms * (
+                      np.ones(self.components.K_max)*np.log(
+                          float(self.alpha)/self.components.K_max + self.components.counts
+                          )
+                      )
+                else:
+                  log_prob_z = deepcopy(log_prob_zs[count])
+                  
+                count += 1
                 # (24.23) in Murphy, p. 842
                 log_prob_z[:self.components.K] += self.components.log_post_pred(i)
                 # Empty (unactive) components
@@ -459,6 +469,7 @@ class FBGMM(object):
         # prob_z = np.exp(log_prob_z - logsumexp(log_prob_z))
         assert not np.isnan(np.sum(prob_z))
 
+        # TODO Try using the viterbi path
         # Sample the new component assignment for `X[i]`
         k = utils.draw(prob_z)
 
