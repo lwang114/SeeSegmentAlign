@@ -30,6 +30,7 @@ class ImageAudioGaussianHMMDiscoverer:
     self.lr = modelConfigs.get('learning_rate', 10.)
     self.isExact = modelConfigs.get('is_exact', False)
     self.durationFile = modelConfigs.get('duration_file', None) 
+    self.downsampleRate = modelConfigs.get('downsample_rate', 1)
     self.init = {}
     self.trans = {}                 # trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
     self.lenProb = {}
@@ -53,7 +54,7 @@ class ImageAudioGaussianHMMDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))] 
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz, key=lambda x:int(x.split('_')[-1]))[:60]] # XXX
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz, key=lambda x:int(x.split('_')[-1]))] # XXX
     if self.hasNull:
       # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
@@ -65,11 +66,14 @@ class ImageAudioGaussianHMMDiscoverer:
         print('example {} is empty:'.format(ex), vfeat.shape) 
         self.vCorpus[ex] = np.zeros((1, self.imageFeatDim))
 
-    durNpz = np.load(self.durationFile)          
-
     aNpz = np.load(speechFeatFile)
-    self.aCorpus = [aNpz[k][:durNpz[k][-1]] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:60]] # XXX
-    
+    if self.durationFile:
+      durNpz = np.load(self.durationFile)          
+      durKeys = sorted(durNpz, key=lambda x:int(x.split('_')[-1]))
+      self.aCorpus = [aNpz[k][:durNpz[durKeys[int(k.split('_')[-1])]][-1]] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX Truncate the features up to the duration of the utterance
+    else:
+      self.aCorpus = [aNpz[k] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX
+
     nTokens = 0
     self.audioFeatDim = self.aCorpus[0].shape[-1]
     for afeat in self.aCorpus:
@@ -648,14 +652,16 @@ class ImageAudioGaussianHMMDiscoverer:
       clustersV, clusterProbs = self.cluster(aSen, vSen, alignment)
       clustersA = np.argmax(np.sum(self.conceptPhoneCounts[i], axis=1), axis=-1).tolist()
       conceptAlignment = np.argmax(np.sum(self.conceptPhoneCounts[i], axis=-1), axis=-1).tolist() 
-      if DEBUG:
-        print(aSen, vSen)
-        print(type(alignment[1]))
+      if self.downsampleRate > 1:
+        alignment_new = []
+        for a in alignment:
+          alignment_new += [a]*self.downsampleRate
+        alignment = deepcopy(alignment_new)
+
       align_info = {
             'index': i,
             'image_concepts': clustersV,
             'phone_clusters': clustersA,
-            'concept_alignment': conceptAlignment, 
             'alignment': alignment,
             'align_probs': alignProbs,
             'concept_probs': self.conceptCounts[i].tolist(),
@@ -815,12 +821,13 @@ if __name__ == '__main__':
   # Word discovery on MSCOCO #
   #---------------------------#
   if 3 in tasks:      
-    speechFeatureFile = '../data/mscoco2k_ae.npz'
+    speechFeatureFile = '../data/mscoco2k_kamper_embeddings_cmvn.npz'
     imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    durationFile = '../data/mscoco2k_landmarks_dict.npz'
-    
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 50, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'ctc', 'width': 0.1, 'normalize': True} # XXX
-    modelName = 'exp/june24_mscoco2k_ae_%s_momentum%.2f_lr%.5f_gaussiansoftmax/image_audio' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    durationFile = None 
+    dsRate = 1
+
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 50, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
+    modelName = 'exp/july6_mscoco2k_%s_momentum%.2f_lr%.5f_gaussiansoftmax/image_audio' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
