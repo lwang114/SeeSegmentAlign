@@ -2,16 +2,14 @@
 # by Kamper, Livescu and Goldwater 2016
 import numpy as np
 import json
-from segmentalist.segmentalist.unigram_acoustic_wordseg import *
-from segmentalist.segmentalist.kmeans_acoustic_wordseg import * 
-# from segmentalist.segmentalist.multimodal_kmeans_acoustic_wordseg import * 
-# from segmentalist.segmentalist.multimodal_unigram_acoustic_wordseg import *
-# from bucktsong_segmentalist.downsample.downsample import *   
-import segmentalist.segmentalist.fbgmm as fbgmm
-# import segmentalist.segmentalist.mfbgmm as mfbgmm 
-import segmentalist.segmentalist.gaussian_components_fixedvar as gaussian_components_fixedvar
-import segmentalist.segmentalist.kmeans as kmeans
-# import segmentalist.segmentalist.mkmeans as mkmeans
+from segmentalist.multimodal_segmentalist.unigram_acoustic_wordseg import *
+# from segmentalist.segmentalist.unigram_acoustic_wordseg import *
+# from segmentalist.segmentalist.kmeans_acoustic_wordseg import * 
+import segmentalist.multimodal_segmentalist.fbgmm as fbgmm
+# import segmentalist.segmentalist.fbgmm as fbgmm
+import segmentalist.multimodal_segmentalist.gaussian_components_fixedvar as gaussian_components_fixedvar
+# import segmentalist.segmentalist.gaussian_components_fixedvar as gaussian_components_fixedvar
+# import segmentalist.segmentalist.kmeans as kmeans
 from scipy import signal
 from utils.clusteval import *
 from utils.postprocess import *
@@ -72,6 +70,8 @@ parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
 parser.add_argument('--use_null', action='store_true')
+parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
+parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
 args = parser.parse_args()
 print(args)
 
@@ -152,7 +152,7 @@ if args.landmarks_file:
 else:
   landmark_ids = []
 
-start_step = 0 
+start_step = 1 
 print(len(list(audio_feats.keys())))
 if start_step == 0:
   print("Start extracting acoustic embeddings")
@@ -198,8 +198,8 @@ if start_step == 0:
             n_down_slices = args.embed_dim / feat_dim
             start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate)
             # if start_frame >= end_frame:
-            print('i_ex, start_frame, end_frame: ', i_ex, start_frame, end_frame)
-            print('feat_mat[start_frame:end_frame].shape: ', feat_mat[start_frame:end_frame+1].shape)
+            # print('i_ex, start_frame, end_frame: ', i_ex, start_frame, end_frame)
+            # print('feat_mat[start_frame:end_frame].shape: ', feat_mat[start_frame:end_frame+1].shape)
             embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args) 
             if args.am_class.split("-")[0] == "multimodal":
               concept_ids_i[i_embed] = [concept2idx[NULL]] + [concept2idx[c] for c in image_concepts[i_ex]]
@@ -246,6 +246,15 @@ if start_step <= 1:
     np.savez(args.exp_dir+"new_landmarks_dict.npz", **new_landmarks_dict)
     landmarks_dict = np.load(args.exp_dir+"new_landmarks_dict.npz") 
 
+# Load seed boundaries and seed assignments
+  seed_boundaries_dict = None
+  if args.seed_boundaries_file:
+    seed_boundaries_dict = np.load(args.seed_boundaries_file)
+ 
+  seed_assignments_dict = None 
+  if args.seed_assignments_file:
+    seed_assignments_dict = np.load(args.seed_assignments_file)
+
   print("Start training segmentation models")
   # Acoustic model parameters
   segmenter = None
@@ -262,6 +271,7 @@ if start_step <= 1:
     segmenter = UnigramAcousticWordseg(
       am_class, am_alpha, am_K, am_param_prior, embedding_mats, vec_ids_dict, 
       durations_dict, landmarks_dict, p_boundary_init=0.1, beta_sent_boundary=-1, 
+      seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
       init_am_assignments='one-by-one',
       n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max
       ) 

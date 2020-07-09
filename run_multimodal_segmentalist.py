@@ -77,7 +77,7 @@ parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Initial 
 parser.add_argument('--time_power_term', type=float, default=1., help='Scaling of the per-frame scaling')
 parser.add_argument('--am_alpha', type=float, default=10., help='Concentration parameter')
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
-parser.add_argument('--seed_boundaries_file', type=str, default=None, hlep='File with seed boundaries')
+parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
 
 args = parser.parse_args()
 print(args)
@@ -221,12 +221,12 @@ if start_step <= 2:
   
   # Load seed boundaries and seed assignments
   seed_boundaries_dict = None
-  if args.seed_boundaries_dict_file:
-    seed_boundaries_dict = np.load(args.seed_boundaries_dict_file)
+  if args.seed_boundaries_file:
+    seed_boundaries_dict = np.load(args.seed_boundaries_file)
  
   seed_assignments_dict = None 
-  if args.seed_assignment_dict_file:
-    seed_assignments_dict = np.load(args.seed_assignments_dict_file)
+  if args.seed_assignments_file:
+    seed_assignments_dict = np.load(args.seed_assignments_file)
 
   print("Start training segmentation models")
   # Acoustic model parameters
