@@ -267,7 +267,6 @@ class MultimodalUnigramAcousticWordseg(object):
 
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
-        self.alignment_model.update_counts()
 
     def set_fb_type(self, fb_type):
         self.fb_type = fb_type
@@ -311,13 +310,14 @@ class MultimodalUnigramAcousticWordseg(object):
 
         self.alignment_model.reset_i(i)
         log_prob_z = self.alignment_model.log_prob_f_given_y_i(i)
+        # print('multimodal prob_z: ', sorted(np.exp(log_prob_z), reverse=True)[:10])
         # Get the log probabilities of the embeddings
         N = self.utterances.lengths[i]
         vec_embed_log_probs = self.get_vec_embed_log_probs(
             self.utterances.vec_ids[i, :(N**2 + N)/2],
-            self.utterances.durations[i, :(N**2 + N)/2])
-            # log_prob_z=deepcopy(log_prob_z) # XXX
-            # ) # Cython use copy-by-reference by default 
+            self.utterances.durations[i, :(N**2 + N)/2],
+            log_prob_z=deepcopy(log_prob_z)
+            ) # Cython use copy-by-reference by default 
 
         # Debug trace
         if i == i_debug_monitor:
@@ -382,9 +382,9 @@ class MultimodalUnigramAcousticWordseg(object):
             if self.fb_type == "standard":
                 if anneal_gibbs_am:
                     # log_prob_z = self.alignment_model.log_prob_f_given_y_i(i)        
-                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp) # XXX log_prob_z=deepcopy(log_prob_z))
+                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp, log_prob_z=deepcopy(log_prob_z))
                 else:
-                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1) # XXX log_prob_z=deepcopy(log_prob_z)) 
+                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
             elif self.fb_type == "viterbi":
                 self.acoustic_model.map_assign_i(i_embed) # XXX Ignore this case for now
 
@@ -490,7 +490,8 @@ class MultimodalUnigramAcousticWordseg(object):
             # Perform intermediate acoustic model re-sampling
             if am_n_iter > 0:
                 self.acoustic_model.gibbs_sample(
-                    am_n_iter, consider_unassigned=False) # XXX log_prob_zs=deepcopy(log_prob_zs)
+                    am_n_iter, consider_unassigned=False, log_prob_zs=deepcopy(log_prob_zs)
+                    )
                     
 
             # Get anneal temperature
@@ -543,14 +544,12 @@ class MultimodalUnigramAcousticWordseg(object):
             if embed_id == -1:
                 continue
             # print('log_prob_z inside get_vec_embed: ', log_prob_z)
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=log_prob_z) 
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=deepcopy(log_prob_z)) 
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
-            else:
-                # XXX
-                # vec_embed_log_probs[i] -= durations[i]
+            else: 
                 vec_embed_log_probs[i] *= durations[i]**self.time_power_term
 
         # # Scale log marginals by number of frames
@@ -682,8 +681,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        if i_utt > 29:
-          break
+        # if i_utt > 29:
+        #   break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 
