@@ -7,6 +7,11 @@ import segmentalist.multimodal_segmentalist.fbgmm as fbgmm
 import segmentalist.multimodal_segmentalist.vgmm as vgmm
 import segmentalist.multimodal_segmentalist.mixture_aligner as mixture_aligner
 import segmentalist.multimodal_segmentalist.gaussian_components_fixedvar as gaussian_components_fixedvar
+from segmentalist.multimodal_segmentalist.hierarchical_multimodal_unigram_acoustic_wordseg import *
+import segmentalist.multimodal_segmentalist.hfbgmm as hfbgmm
+import segmentalist.multimodal_segmentalist.crp_aligner as crp_aligner
+import segmentalist.multimodal_segmentalist.hierarchical_gaussian_components_fixedvar as hierarchical_gaussian_components_fixedvar
+
 from scipy import signal
 import argparse
 from utils.postprocess import *
@@ -33,16 +38,16 @@ def embed(y, n, args):
       x = np.arange(y.shape[1])
       f = interpolate.interp1d(x, y, kind="linear")
       x_new = np.linspace(0, y.shape[1] - 1, n)
-      y_new = f(x_new).flatten(flatten_order) #.flatten("F")
+      y_new = f(x_new).T.flatten(flatten_order) #.flatten("F")
   elif args.technique == "resample": 
-      y_new = signal.resample(y.astype("float32"), n, axis=1).flatten(flatten_order) #.flatten("F")
+      y_new = signal.resample(y.astype("float32"), n, axis=1).T.flatten(flatten_order) #.flatten("F")
   elif args.technique == "rasanen":
       # Taken from Rasenen et al., Interspeech, 2015
       d_frame = y.shape[0]
       n_frames_in_multiple = int(np.floor(y.shape[1] / n)) * n
       y_new = np.mean(
           y[:, :n_frames_in_multiple].reshape((d_frame, n, -1)), axis=-1
-          ).flatten(flatten_order) #.flatten("F")
+          ).T.flatten(flatten_order) #.flatten("F")
   elif args.technique == 'mean':
       if y.shape[1] == 0:
         return np.zeros((args.embed_dim,)) 
@@ -55,14 +60,14 @@ parser.add_argument("--n_slices_min", type=int, default=2, help="Minimum slices 
 parser.add_argument("--n_slices_max", type=int, default=11, help="Maximum slices between landmarks per segments")
 parser.add_argument("--min_duration", type=int, default=0, help="Minimum slices of a segment")
 parser.add_argument("--technique", choices={"resample", "interpolate", "rasanen", "mean"}, default="resample", help="Embedding technique")
-parser.add_argument("--am_class", choices={"fbgmm"}, default='fbgmm', help="Class of acoustic model")
+parser.add_argument("--am_class", choices={"fbgmm", "hfbgmm"}, default='fbgmm', help="Class of acoustic model")
 parser.add_argument("--am_K", type=int, default=65, help="Number of acoustic clusters")
 parser.add_argument("--vm_class", choices={"vgmm"}, default='vgmm', help="Class of visual model")
 parser.add_argument("--vm_K", type=int, default=65, help="Number of visual clusters")
-parser.add_argument('--aligner_class', choices={'mixture_aligner'}, default='mixture_aligner', help='Class of alignment model')
+parser.add_argument('--aligner_class', choices={'mixture_aligner', 'crp_aligner'}, default='mixture_aligner', help='Class of alignment model')
 parser.add_argument("--exp_dir", type=str, default='./', help="Experimental directory")
-parser.add_argument("--audio_feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer'}, default='mfcc', help="Acoustic feature type")
-parser.add_argument("--image_feat_type", type=str, choices={'res34'}, default='res34', help="Visual feature type")
+parser.add_argument("--audio_feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'synthetic'}, default='mfcc', help="Acoustic feature type")
+parser.add_argument("--image_feat_type", type=str, choices={'res34', 'synthetic'}, default='res34', help="Visual feature type")
 parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC/delta feature")
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
@@ -80,9 +85,15 @@ if not os.path.isdir(args.exp_dir):
 
 if args.dataset == 'mscoco2k':
   datasetpath = 'data/'
+  
+  if args.audio_feat_type == 'synthetic':
+    args.audio_feat_type = 'audio_gaussian_vectors'
   audio_feature_file = datasetpath + 'mscoco2k_%s_unsegmented.npz' % args.audio_feat_type 
+
   if args.image_feat_type == 'res34':
     args.image_feat_type = 'res34_embed512dim'
+  elif args.image_feat_type == 'synthetic':
+    args.image_feat_type = 'image_gaussian_vectors'
   image_feature_file = datasetpath + 'mscoco2k_%s.npz' % args.image_feat_type 
   concept2idx_file = datasetpath + 'concept2idx.json'
   
@@ -127,7 +138,7 @@ if args.landmarks_file:
 else:
   landmark_ids = []
 
-start_step = 0
+start_step = 2
 print(len(list(audio_feats.keys())))
 if start_step == 0:
   print("Start extracting acoustic embeddings")
@@ -135,8 +146,8 @@ if start_step == 0:
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    # if i_ex > 29:
-    #   break
+    if i_ex > 29:
+      break
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -225,6 +236,15 @@ if start_step <= 2:
     k_0 = 0.05
     S_0 = 0.002*np.ones(D)
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
+  elif args.am_class == "hfbgmm":
+    D = args.embed_dim
+    am_class = hfbgmm.HierarchicalFBGMM
+    am_alpha = args.am_alpha
+    am_K = args.am_K
+    m_0 = np.zeros(D)
+    k_0 = 0.05
+    S_0 = 0.002*np.ones(D)
+    am_param_prior = hierarchical_gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
   else:
     raise ValueError("am_class %s is not supported" % args.am_class)
   
@@ -236,26 +256,54 @@ if start_step <= 2:
   else:
     raise ValueError("vm_class %s is not supported" % args.vm_class)
   
-  if args.aligner_class == 'mixture_aligner':
-    aligner_class = mixture_aligner.MixtureAligner
-  else:
-    raise ValueError("aligner_class %s is not supported" % args.aligner_class)
- 
-  segmenter = MultimodalUnigramAcousticWordseg(
-      am_class, am_alpha, am_K, am_param_prior,
-      vm_class, vm_K, vm_param_prior,
-      aligner_class,
-      a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
-      v_embedding_mats, v_vec_ids_dict,
-      p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
-      time_power_term=args.time_power_term,
-      init_am_assignments='one-by-one', 
-      n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
-      model_name=args.exp_dir+'mbes_gmm'
-      ) 
+  if args.am_class == "fbgmm": 
+    if args.aligner_class == 'mixture_aligner':
+      aligner_class = mixture_aligner.MixtureAligner
+    else:
+      Warning("aligner class %s is not compatible with am class %s, switch to mixture aligner" % (args.aligner_class, args.am_class))
+      aligner_class = mixture_aligner.MixtureAligner
 
-  # Perform sampling
-  record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule="linear", anneal_gibbs_am=True) 
+  elif args.am_class == "hfbgmm":
+    if args.aligner_class == 'crp_aligner':
+      aligner_class = mixture_aligner.CRPAligner
+    else:
+      Warning("aligner class %s is not compatible with am class %s, switch to crp aligner" % (args.aligner_class, args.am_class))
+      aligner_class = crp_aligner.CRPAligner
+
+  if args.am_class == "fbgmm":
+    segmenter = MultimodalUnigramAcousticWordseg(
+        am_class, am_alpha, am_K, am_param_prior,
+        vm_class, vm_K, vm_param_prior,
+        aligner_class,
+        a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
+        v_embedding_mats, v_vec_ids_dict,
+        p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
+        time_power_term=args.time_power_term,
+        init_am_assignments='one-by-one', 
+        n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
+        model_name=args.exp_dir+'mbes_gmm'
+        ) 
+    # Perform sampling
+    record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule="linear", anneal_gibbs_am=True) 
+  elif args.am_class == "hfbgmm":
+    am_M = 50 # XXX
+    am_T = int(args.embed_dim / args.mfcc_dim)
+    segmenter = HierarchicalMultimodalUnigramAcousticWordseg(
+        am_class, am_alpha, am_K, am_param_prior,
+        vm_class, vm_K, vm_param_prior,
+        aligner_class,
+        a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
+        v_embedding_mats, v_vec_ids_dict,
+        p_boundary_init=1., beta_sent_boundary=-1, 
+        time_power_term=args.time_power_term,
+        init_am_assignments='kmeans', 
+        n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
+        am_M=am_M, am_T=am_T,
+        model_name=args.exp_dir+'hierarchical_mbes_gmm'
+        ) 
+
+    # Perform sampling
+    record = segmenter.gibbs_sample(args.n_iter, 0, anneal_schedule="linear", anneal_gibbs_am=True) 
   print("Take %0.5f s to finish training !" % (time.time() - begin_time))
   np.save("%spred_boundaries.npy" % args.exp_dir, segmenter.utterances.boundaries)
   
