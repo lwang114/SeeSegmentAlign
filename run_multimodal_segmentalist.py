@@ -76,6 +76,8 @@ parser.add_argument('--n_iter', type=int, default=300, help='Number of Gibbs sam
 parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Initial boundary probability')
 parser.add_argument('--time_power_term', type=float, default=1., help='Scaling of the per-frame scaling')
 parser.add_argument('--am_alpha', type=float, default=10., help='Concentration parameter')
+parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
+parser.add_argument('--seed_boundaries_file', type=str, default=None, hlep='File with seed boundaries')
 
 args = parser.parse_args()
 print(args)
@@ -216,13 +218,15 @@ if start_step <= 2:
   durations_dict = np.load(args.exp_dir+"durations_dict.npz")
   landmarks_dict = np.load(args.exp_dir+"landmarks_dict.npz")
   # Ensure the landmark ids and utterance ids are the same
-  if args.audio_feat_type == "bn":
-    landmarks_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
-    new_landmarks_dict = {}
-    for lid, uid in zip(landmarks_ids, ids_to_utterance_labels):
-      new_landmarks_dict[uid] = landmarks_dict[lid]
-    np.savez(args.exp_dir+"new_landmarks_dict.npz", **new_landmarks_dict)
-    landmarks_dict = np.load(args.exp_dir+"new_landmarks_dict.npz") 
+  
+  # Load seed boundaries and seed assignments
+  seed_boundaries_dict = None
+  if args.seed_boundaries_dict_file:
+    seed_boundaries_dict = np.load(args.seed_boundaries_dict_file)
+ 
+  seed_assignments_dict = None 
+  if args.seed_assignment_dict_file:
+    seed_assignments_dict = np.load(args.seed_assignments_dict_file)
 
   print("Start training segmentation models")
   # Acoustic model parameters
@@ -277,6 +281,7 @@ if start_step <= 2:
         aligner_class,
         a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
         v_embedding_mats, v_vec_ids_dict,
+        seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
         p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
         time_power_term=args.time_power_term,
         init_am_assignments='one-by-one', 
