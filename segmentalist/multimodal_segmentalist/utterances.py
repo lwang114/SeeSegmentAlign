@@ -170,7 +170,7 @@ class Utterances(object):
                 k = int(0.5*(j + 1)*j)  # this is the index of the seq[0:j] in `vec_ids[i]`
                 k += j_prev  # this is the index of the seq[j_prev:j] in `vec_ids[i]`
                 embed_ids.append(self.vec_ids[i, k])
-                j_prev = j + 1
+                j_prev = j + 1 
         return embed_ids
 
     def get_segmented_durations_i(self, i):

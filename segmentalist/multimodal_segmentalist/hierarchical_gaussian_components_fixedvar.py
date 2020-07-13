@@ -247,6 +247,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
        
             Xr = self.inv_embed(i)
             for l, m in enumerate(word.split(',')):
+              if not m in self.phone_to_idx: # Only do something if the phone component has not been deleted
+                continue
               m_idx = self.phone_to_idx[m]
               if self.phone_counts[m_idx] == 0: # Delete the phone component if it is empty 
                 self.del_phone_component(m_idx)          
@@ -274,11 +276,10 @@ class HierarchicalGaussianComponentsFixedVar(object):
           self.counts[self.K] = 0
           # print('%s is in the dictionary? ' % w + str(w in self.word_to_idx or w in self.idx_to_word))
 
-        
     def del_phone_component(self, m):
         """Remove the subword component `m`."""
         logger.debug("Deleting subword component " + str(m))
-        # print('In HG del_phone, delete phone: ' + str(self.idx_to_phone[m]) + ' ' + str(m))
+        print('In HG del_phone, delete phone: ' + str(self.idx_to_phone[m]) + ' ' + str(m))
         self.M -= 1
         phone = self.idx_to_phone[m]
         if m != self.M:

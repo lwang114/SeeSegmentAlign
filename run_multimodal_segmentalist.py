@@ -161,7 +161,7 @@ if start_step == 0:
       feat_mat = feat_mat[:, :args.mfcc_dim]
 
     # print('np.mean(feat), np.std(feat): ', np.mean(feat_mat), np.std(feat_mat))
-    feat_mat = (feat_mat - np.mean(feat_mat)) / np.maximum(np.std(feat_mat), EPS)
+    # feat_mat = (feat_mat - np.mean(feat_mat)) / np.maximum(np.std(feat_mat), EPS)
 
     if not args.landmarks_file:
       n_slices = feat_mat.shape[0]

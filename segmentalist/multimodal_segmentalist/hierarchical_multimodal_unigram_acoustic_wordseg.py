@@ -11,6 +11,7 @@ import random
 import time
 import json
 from utterances import Utterances
+from hierarchical_gaussian_components_fixedvar import *
 import _cython_utils
 from copy import deepcopy
 from sklearn.cluster import KMeans
@@ -194,6 +195,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         init_embeds = np.array(init_embeds, dtype=int)
         init_embeds = init_embeds[np.where(init_embeds != -1)]
 
+        am_param_prior = self.adapt_am_params(a_embeddings) # Adapt the prior to the dataset
+        
         # Provide the initial acoustic model assignments and initialize the model accordingly
         assignments = -1*np.ones(N, dtype=int)
         if seed_assignments_dict is not None:
@@ -620,6 +623,26 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
 
         return log_margs
 
+    def adapt_am_params(self, a_embeddings):
+      D = a_embeddings.shape[1]
+      m_0 = np.zeros(D)
+      S = np.zeros(D)   
+      count = 0
+      for i in range(self.utterances.D):
+        for i_embed in self.utterances.get_segmented_embeds_i(i):
+          m_0 += a_embeddings[i_embed]
+          count += 1
+      m_0 /= count
+
+      for i in range(self.utterances.D):
+        for i_embed in self.utterances.get_segmented_embeds_i(i):
+          S += (a_embeddings[i_embed] - m_0) ** 2 / count
+      
+      print('m_0:' + str(m_0))
+      print('S:' + str(S))
+      return FixedVarPrior(S/30., m_0, S/3.)
+
+
     def save_results(self, out_file):
       alignments = self.alignment_model.align_corpus()
       transcripts = [self.get_unsup_transcript_i(i) for i in range(self.utterances.D)]
@@ -641,6 +664,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
           
       with open(out_file, 'w') as f:
         json.dump(results, f, indent=4, sort_keys=True)           
+
 
 #-----------------------------------------------------------------------------#
 #                              UTILITY FUNCTIONS                              #
