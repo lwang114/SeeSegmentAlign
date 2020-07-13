@@ -254,7 +254,7 @@ class FBGMM(object):
         return log_prob_z + log_prob_X_given_z
 
     # @profile
-    def log_marg_i(self, i, log_prob_z=[]):
+    def log_marg_i(self, i, log_prob_z=[], log_prob_z_given_y=[]):
         """
         Return the log marginal of the i'th data vector: p(x_i)
 
@@ -272,6 +272,9 @@ class FBGMM(object):
             # - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha - 1.)
             - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha)
             )
+          if len(log_prob_z_given_y):
+            log_prob_z += log_prob_z_given_y
+            log_prob_z -= logsumexp(log_prob_z)
         # log_prob_z = lms * (
         #     np.ones(self.components.K_max)*(
         #         np.log(float(self.alpha)/self.components.K_max + self.components.counts)
@@ -279,9 +282,7 @@ class FBGMM(object):
         #         )
         #     )
         # logger.info("log_prob_z: " + str(log_prob_z))
-        # print('log_post_pred(i): ', sorted(self.components.log_post_pred(i), reverse=True)[:10])
-        # print('log_prior(i): ', self.components.log_prior(i))
-
+        
         # (24.23) in Murphy, p. 842
         log_prob_z[:self.components.K] += self.components.log_post_pred(i)
         # Empty (unactive) components
@@ -291,7 +292,7 @@ class FBGMM(object):
  
     def gibbs_sample(self, n_iter, consider_unassigned=True,
             anneal_schedule=None, anneal_start_temp_inv=0.1,
-            anneal_end_temp_inv=1, n_anneal_steps=-1, log_prob_zs=[]): #, lms=1.0):
+            anneal_end_temp_inv=1, n_anneal_steps=-1, log_prob_zs=[], log_prob_z_given_ys=[]): #, lms=1.0):
         """
         Perform `n_iter` iterations Gibbs sampling on the FBGMM.
 
@@ -353,6 +354,8 @@ class FBGMM(object):
 
         if len(log_prob_zs):
             log_prob_zs = np.concatenate(log_prob_zs, axis=0)
+        if len(log_prob_z_given_ys):
+            log_prob_z_given_ys = np.concatenate(log_prob_z_given_ys, axis=0)
 
         # Loop over iterations
         for i_iter in range(n_iter):
@@ -372,6 +375,7 @@ class FBGMM(object):
                 stats_old = self.components.cache_component_stats(k_old)
 
                 # Remove data vector `X[i]` from its current component
+                # TODO Handle this
                 self.components.del_item(i)
 
                 # Compute log probability of `X[i]` belonging to each component
@@ -382,9 +386,12 @@ class FBGMM(object):
                           float(self.alpha)/self.components.K_max + self.components.counts
                           )
                       )
+                  if len(log_prob_z_given_ys):
+                    log_prob_z += log_prob_z_given_ys[count]
+                    log_prob_z -= logsumexp(log_prob_z)
+
                 else:
                   log_prob_z = deepcopy(log_prob_zs[count])
-                  
                 count += 1
                 # (24.23) in Murphy, p. 842
                 log_prob_z[:self.components.K] += self.components.log_post_pred(i)
@@ -432,7 +439,7 @@ class FBGMM(object):
 
         return record_dict
 
-    def gibbs_sample_inside_loop_i(self, i, anneal_temp=1, log_prob_z=[]): #, lms=1.):
+    def gibbs_sample_inside_loop_i(self, i, anneal_temp=1, log_prob_z=[], log_prob_z_given_y=[]): #, lms=1.):
         """
         Perform the inside loop of Gibbs sampling for data vector `i`.
 
@@ -452,18 +459,22 @@ class FBGMM(object):
                 float(self.alpha)/self.components.K_max + self.components.counts
                 )
             )
+          if len(log_prob_z_given_y):
+            log_prob_z += log_prob_z_given_y
+            log_prob_z -= logsumexp(log_prob_z)
+        # print('Maximum indices according to prior: ' + str(np.argsort(-log_prob_z)[:5]))
 
         # (24.23) in Murphy, p. 842
         log_prob_z[:self.components.K] += self.components.log_post_pred(i)
         # Empty (unactive) components
         log_prob_z[self.components.K:] += self.components.log_prior(i)
+
         if anneal_temp != 1:
             log_prob_z = log_prob_z - logsumexp(log_prob_z)
             log_prob_z_anneal = 1./anneal_temp * log_prob_z - logsumexp(1./anneal_temp * log_prob_z)
-            # print('sorted log prob z top 10: ', sorted(log_prob_z_anneal, reverse=True)[:10])
-
             prob_z = np.exp(log_prob_z_anneal)
-            # print('sorted prob z top 10: ', sorted(prob_z, reverse=True)[:10])
+            # print('Maximum indices according to posterior: ' + str(np.argsort(-prob_z)[:5]))
+            # print('Maximum probs: ' + str(sorted(prob_z, reverse=True)[:5]))
         else:
             prob_z = np.exp(log_prob_z - logsumexp(log_prob_z))
         # prob_z = np.exp(log_prob_z - logsumexp(log_prob_z))

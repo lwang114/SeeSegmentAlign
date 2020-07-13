@@ -266,7 +266,6 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
                 M=am_M, T=am_T)
-
         else:
             assert False, "invalid value for `init_am_assignments`: " + init_am_assignments
         
@@ -280,8 +279,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         
         # Generate unsupervised transcripts as target sentences to the aligner
         a_sents = [self.get_unsup_transcript_i(i_utt) for i_utt in range(self.utterances.D)]
-        print('a_sents[:10]', a_sents[:10])
-
+        print('In HM init, a_sents[:10]: ' + str(a_sents[:10]))
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
         self.alignment_model.setup_restaurants()
@@ -312,19 +310,20 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         if i == i_debug_monitor:
             logger.debug("-"*39)
             logger.debug("log p(X) before sampling: " + str(self.acoustic_model.log_marg()))
-            logger.debug("Unsupervised transcript before sampling: " + str(self.get_unsup_transcript_i(i)))
+            logger.debug("Unsupervised transcript before sampling: " + str(self.get_unsup_transcript_i(i))) 
 
         # Remove embeddings from utterance `i` from the `acoustic_model`
         for i_embed in self.utterances.get_segmented_embeds_i(i):
             if i_embed == -1:
                 continue  # don't remove a non-embedding (would accidently remove the last embedding)
             self.acoustic_model.components.del_item(i_embed)
-
-        self.alignment_model.del_item(i)
+        self.alignment_model.del_item(i) 
         log_prob_z_dict = self.alignment_model.log_prob_f_given_y_i(i)
-        word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx)
+
+        word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
         log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
         log_prob_z.append(log_prob_z_dict[NEWWORD])
+        log_prob_z = np.asarray(log_prob_z)
 
         # Get the log probabilities of the embeddings
         N = self.utterances.lengths[i]
@@ -402,14 +401,14 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 # else:
                 #     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
                 self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
-
+                
             elif self.fb_type == "viterbi":
-                self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
+                self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z)) 
 
         # Update alignment parameters
         src_sent = np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i]])
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))
-        print('example, trg_sent[:10]', i, trg_sent[:10])
+        print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
         self.alignment_model.add_item(i, src_sent, trg_sent)
 
         # Debug trace
@@ -503,6 +502,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 log_prob_z_dict = self.alignment_model.log_prob_f_given_y_i(i_utt)
                 log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
                 log_prob_z.append(log_prob_z_dict[NEWWORD])
+                log_prob_z = np.asarray(log_prob_z)
 
                 n_embeds = len(self.utterances.get_segmented_embeds_i(i_utt))
                 log_prob_zs.append(np.tile(log_prob_z, (n_embeds, 1)))
@@ -510,9 +510,9 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             # Perform intermediate acoustic model re-sampling
             if am_n_iter > 0:
                 self.acoustic_model.gibbs_sample(
-                    am_n_iter, consider_unassigned=False,
-                    log_prob_zs=deepcopy(log_prob_zs)
-                    )
+                      am_n_iter, consider_unassigned=False,
+                      log_prob_zs=deepcopy(log_prob_zs)
+                     )
 
             # Get anneal temperature
             anneal_temp = next(get_anneal_temp, anneal_end_temp_inv)
@@ -524,7 +524,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 utt_order = [i_debug_monitor]
             log_prob = 0
             for i_utt in utt_order:
-                log_prob += self.gibbs_sample_i(i_utt, anneal_temp, anneal_gibbs_am)
+              log_prob += self.gibbs_sample_i(i_utt, anneal_temp, anneal_gibbs_am)
 
             # Update visual model parameters
             # self.visual_model.reset()
@@ -563,7 +563,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         for i, embed_id in enumerate(vec_ids):
             if embed_id == -1:
                 continue
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z) 
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, deepcopy(log_prob_z)) 
 
         return vec_embed_log_probs + self.wip
 
@@ -728,7 +728,6 @@ def process_embeddings(embedding_mats, vec_ids_dict):
 
 def compute_segment_lengths(lengths, vec_ids, n_slices_min=0, n_slices_max=np.inf):
     segment_lengths = -1 * np.ones((n_slices_max - max(n_slices_min, 1) + 1)*sum(lengths), np.int64)
-    print('len(lengths), len(vec_ids), n_slices_min, n_slices_max: ', len(lengths), len(vec_ids), n_slices_min, n_slices_max)
     for n_slices, cur_vec_ids in zip(lengths, vec_ids):
         for cur_start in range(n_slices):
             for cur_end in range(cur_start + max(n_slices_min - 1, 0), min(n_slices, cur_start + n_slices_max)):
@@ -736,8 +735,7 @@ def compute_segment_lengths(lengths, vec_ids, n_slices_min=0, n_slices_max=np.in
                 t = cur_end
                 i = t*(t-1)/2
                 i_embed = int(cur_vec_ids[i + cur_start])
-                segment_lengths[i_embed] = cur_end - cur_start + 1
-    print('i_embed last, len(segment_lengths): ', i_embed, len(segment_lengths))
+                segment_lengths[i_embed] = cur_end - cur_start
     return segment_lengths
 
 #-----------------------------------------------------------------------------#

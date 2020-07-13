@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 import _cython_utils
 
-
+EPS = 1e-100
 #-----------------------------------------------------------------------------#
 #                   FIXED VARIANCE GAUSSIAN COMPONENTS CLASS                  #
 #-----------------------------------------------------------------------------#
@@ -181,39 +181,42 @@ class HierarchicalGaussianComponentsFixedVar(object):
         assert not i == -1
         if isinstance(k, int):
           k = [k]
-
+        assert self.lengths[i] == len(k)
+        
         for m in k: 
-          if m == self.M: # If a new phone component is created, generate a new key         
-            # Check the number of subword units is below upper limit
-            if self.M == self.M_max:
+          if m == self.M: # Create a new phone component 
+            if self.M == self.M_max: # Check the number of subword units is below upper limit; otherwise, increase the upper limit
               self.M_max += 1
               self.phone_counts = np.append(self.phone_counts, np.zeros(1))
               self.mu_N_numerators = np.append(self.mu_N_numerators, np.zeros((1, self.D)))
               self.precision_preds = np.append(self.precision_preds, np.zeros((1, self.D)))
 
-            for im in range(self.M_max):
+            for im in range(self.M_max): # Create a key for the new component
               if not str(im) in self.phone_to_idx:  
+                # print('In HG add_item, phone_counts[M] before being replaced: ' + str(self.phone_counts[self.M]))
+                # print('In HG add_item, add a new phone: ' + str(im) + ' ' + str(self.M))
                 self.phone_to_idx[str(im)] = self.M
                 self.idx_to_phone.append(str(im)) 
                 self.M += 1
                 assert self.M == len(self.idx_to_phone)
                 break 
+          
+            self.mu_N_numerators[m, :] = self.precision_0*self.mu_0
+            self.precision_Ns[m, :] = self.precision_0
         
         w = ','.join(self.idx_to_phone[m] for m in k)
-        if not w in self.word_to_idx: # If a new word component is created, generate a new key         
+        if not w in self.word_to_idx: # Create a new word component         
+          # print('In HG add_item, add a new word: ' + w + ' ' + str(self.K))
           if self.K == self.K_max: # Check the number of word units is below upper limit
             self.K_max += 1
-            self.counts = np.append(self.counts, np.zeros(1)) 
+            self.counts = np.append(self.counts, np.zeros(1, np.int)) 
           self.word_to_idx[w] = self.K
           self.idx_to_word.append(w)
           self.K += 1
           assert self.K == len(self.idx_to_word)
         
         Xr = self.inv_embed(i)
-        for l, m in enumerate(k): 
-          self.mu_N_numerators[m, :] = self.precision_0*self.mu_0
-          self.precision_Ns[m, :] = self.precision_0
-          
+        for l, m in enumerate(k): # Update component stats
           self.mu_N_numerators[m, :] += self.precision*Xr[l]
           self.precision_Ns[m, :] += self.precision
           self.phone_counts[m] += 1
@@ -226,47 +229,58 @@ class HierarchicalGaussianComponentsFixedVar(object):
         """Remove data vector `X[i]` from its component."""
         assert not i == -1
         k = self.assignments[i]
+        word = self.idx_to_word[k]
         L = self.lengths[i] 
 
         # Only do something if the data vector has been assigned
         if k != -1:
-            w = [self.phone2idx[m] for m in self.idx_to_word[k].split(',')]
-            assert L == len(w)
+            w_indices = [self.phone_to_idx[m] for m in word.split(',')] 
+            assert L == len(w_indices) 
             self.counts[k] -= 1
-            if self.word_counts[k] == 0:
-              self.del_component(w)
+            for l, m_idx in enumerate(w_indices):
+              self.phone_counts[m_idx] -= 1
+
+            if self.counts[k] == 0:
+              self.del_component(w_indices)
+                      
             self.assignments[i] = -1
-            
+       
             Xr = self.inv_embed(i)
-            for l, m in enumerate(w):
-              self.phone_counts[m] -= 1
-              if self.phone_counts[m] == 0: # Can just delete the component, don't have to update anything
-                self.del_phone_component(m)
-              else:
-                # Update the component
-                self.mu_N_numerators[m, :] -= self.precision*self.Xr[l]
-                self.precision_Ns[m, :] -= self.precision
-                self._update_log_prod_precision_pred_and_precision_pred(m)
-    
+            for l, m in enumerate(word.split(',')):
+              m_idx = self.phone_to_idx[m]
+              if self.phone_counts[m_idx] == 0: # Delete the phone component if it is empty 
+                self.del_phone_component(m_idx)          
+              else: # Update the component stats if it is not empty 
+                self.mu_N_numerators[m_idx, :] -= self.precision*Xr[l]
+                self.precision_Ns[m_idx, :] -= self.precision
+                self._update_log_prod_precision_pred_and_precision_pred(m_idx)
+
     def del_component(self, k):
-        """Remove the word component `k`."""
+        """Remove the word component `k`, where `k` is a phone index or list of phone indices.""" 
+        self.K -= 1
         if isinstance(k, int): # If k is an integer, delete the phone component `k` 
           self.del_phone_component(k) 
         else: # Else delete the word component k and every empty phone component in k
-          w = ','.join([self.idx_to_phone for m in k])
+          w = ','.join([self.idx_to_phone[m] for m in k])
+          # print('In HG del_component, delete word: ' + w + ' ' + str(self.word_to_idx[w]))
           if self.word_to_idx[w] != self.K:
-            self.counts[self.word_to_idx[w]] = self.precision_preds[self.K, :]
-            self.assignments[np.where(self.assignments == self.K)] = self.word_to_idx[w]
-          
-          for m in k:
-            if self.phone_counts[m] == 0:
-              self.del_phone_component(m)          
+            self.counts[self.word_to_idx[w]] = self.counts[self.K]
+            self.idx_to_word[self.word_to_idx[w]] = self.idx_to_word[self.K]
+            self.word_to_idx[self.idx_to_word[self.K]] = self.word_to_idx[w]
+            self.assignments[np.where(self.assignments == self.K)] = self.word_to_idx[w] 
+           
+          del self.idx_to_word[self.K]
+          self.word_to_idx.pop(w) 
+          self.counts[self.K] = 0
+          # print('%s is in the dictionary? ' % w + str(w in self.word_to_idx or w in self.idx_to_word))
 
+        
     def del_phone_component(self, m):
         """Remove the subword component `m`."""
-        logger.debug("Deleting subword component " + str(k))
+        logger.debug("Deleting subword component " + str(m))
+        # print('In HG del_phone, delete phone: ' + str(self.idx_to_phone[m]) + ' ' + str(m))
         self.M -= 1
-
+        phone = self.idx_to_phone[m]
         if m != self.M:
             # Put stats from last component into place of the one being removed
             self.mu_N_numerators[m] = self.mu_N_numerators[self.M]
@@ -275,10 +289,12 @@ class HierarchicalGaussianComponentsFixedVar(object):
             self.precision_preds[m, :] = self.precision_preds[self.M, :]
             self.phone_counts[m] = self.phone_counts[self.M]
             self.phone_to_idx[self.idx_to_phone[self.M]] = m
-            self.phone_to_idx.pop(self.idx_to_phone[m]) 
             self.idx_to_phone[m] = self.idx_to_phone[self.M]
-            del self.idx_to_phone[self.M]  
-            assert len(self.idx_to_phone) == len(self.phone_to_idx) == self.M
+
+        self.phone_to_idx.pop(phone)     
+        del self.idx_to_phone[self.M]   
+        self.phone_counts[self.M] = 0
+        assert len(self.idx_to_phone) == len(self.phone_to_idx) == self.M
      
         # Empty out stats for last component
         self.mu_N_numerators[self.M].fill(0.)
@@ -286,6 +302,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
         self.log_prod_precision_preds[self.M] = 0.
         self.precision_preds[self.M, :].fill(0.)
         self.phone_counts[self.M] = 0
+
+        # print('%s is in the dictionary? ' % phone + str(phone in self.phone_to_idx or phone in self.idx_to_phone))
 
     # @profile
     def log_prior(self, i):
@@ -305,53 +323,59 @@ class HierarchicalGaussianComponentsFixedVar(object):
         return self._log_prod_norm(i, mu_N, self.log_prod_precision_preds[k], self.precision_preds[k])
 
     # @profile
-    def log_post_pred_new(self, log_post_pred):
-      log_marg_i = logsumexp(log_post_preds, axis=1).sum() 
-      log_marg_i_active = logsumexp(log_post_preds_active)
-      print('np.log(1 - np.exp(log_marg_i_active - log_marg_i)): ', np.log(1 - np.exp(log_marg_i_active - log_marg_i))) # XXX
-      return log_marg_i + np.log(1 - np.exp(log_marg_i_active - log_marg_i)) # TODO Check this  
+    def log_post_pred_active(self, i, log_post_preds):
+        active_words = [w for w, iw in sorted(self.word_to_idx.items(), key=lambda x:x[1]) if self.lengths[i] == len(w.split(','))]
+        return np.array([sum(log_post_preds[l, self.phone_to_idx[m]] for l, m in enumerate(w.split(','))) for w in active_words])
 
     # @profile
-    def log_post_pred(self, i, vectorize=True):
+    def log_post_pred_inactive(self, log_post_preds, log_post_preds_active): 
+        log_marg_i = logsumexp(log_post_preds, axis=1).sum() 
+        if not len(log_post_preds_active): # If none of the components are active, return the whole log marginal
+          return log_marg_i
+        else:
+          log_marg_i_active = logsumexp(log_post_preds_active)
+          # print('log_marg_i, log_marg_i_active: ', log_marg_i, log_marg_i_active)
+          # print('np.log(1 - np.exp(log_marg_i_active - log_marg_i)): ', np.log(max(1 - np.exp(log_marg_i_active - log_marg_i), EPS))) # XXX
+          return log_marg_i + np.log(max(1 - np.exp(log_marg_i_active - log_marg_i), EPS)) # TODO Check this  
+
+    # @profile
+    def log_post_pred(self, i):
         """
         If vectorize is False, return a lengths[i]x`M`-dimensional matrix of the posterior predictive of `X[i]`
         under all components. 
         If vectorize is True, return a length `K`+1 vector with the first K entries containing log posterior predictive of `X[i]` under the active components and the last entry combining those of inactive components  
         """
-        n = max(2, int(self.T / self.lengths[i]))
+        n_min = max(2, int(self.T / self.lengths[i]))
+        n_max = n_min + 1
+        # TODO Divide the intervals proportional to the durations of the segments
+        if abs(n_max * self.lengths[i] - self.T) > abs(n_min * self.lengths[i] - self.T):
+          n = n_min
+        else:
+          n = n_max     
         Dr = int(self.D / self.T * n)
-        L = int(self.T / n) 
+        Xr = self.embed(self.X[i], n*self.lengths[i])  
+        mu_Ns = np.asarray([self.embed(self.mu_N_numerators[m]/self.precision_Ns[m], n) for m in range(self.M)])
+        precision_preds = np.asarray([self.embed(self.precision_preds[m], n) for m in range(self.M)])
+        log_precision_preds = self.log_prod_precision_preds[:self.M]
 
         log_post_preds = np.nan*np.ones((self.lengths[i], self.M_max))
-        mu_Ns = self.mu_N_numerators[:self.M]/self.precision_Ns[:self.M]
-        precision_preds = self.embed(self.precision_preds[:self.M], n)
-        log_precision_preds = self.log_prod_precision_preds[:self.M]
-        for l in range(L):
-          deltas = self.embed(mu_Ns, n) - self.X[i, l*Dr:(l+1)*Dr]
-          log_post_preds[l] = (
-            self._cached_neg_half_D_log_2pi
-            + 0.5*log_precision_preds
-            - 0.5*((deltas*deltas)*precision_preds).sum(axis=1)
-            )
-        if L < self.lengths[i]: # For the probabilities of unused phone embeddings are equal to the probability of the last used phone embedding
-          log_post_preds[L:] = log_post_preds[L-1] 
+        for l in range(self.lengths[i]):
+          deltas = mu_Ns - Xr[l*Dr:(l+1)*Dr]
+          log_post_preds[l, :self.M] = (
+              self._cached_neg_half_D_log_2pi
+              + 0.5*log_precision_preds
+              - 0.5*((deltas*deltas)*precision_preds).sum(axis=1)
+              )
 
         # return (
         #     self._cached_neg_half_D_log_2pi
         #     + 0.5*self.log_prod_precision_preds[:self.K]
         #     - 0.5*(np.square(deltas)*self.precision_preds[:self.K]).sum(axis=1)
         #     ) 
-        log_priors = np.tile(self.log_prior(i), (1, self.M_max-self.M))
-        log_post_preds = np.concatenate([log_post_preds, log_priors], axis=1)      
-        
-        if vectorize:
-          allowed_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if self.lengths[i] == len(w.split(','))]
-          return np.array([sum(log_post_preds[l, self.phone_to_idx[m]] for l, m in enumerate(w.split(','))) for w in allow_words])
-        else:
-          return log_post_preds
+        log_post_preds[:, self.M:] = np.tile(self.log_prior(i), (1, self.M_max-self.M))
+        return log_post_preds
 
     # TODO
-    '''
     def log_marg_k(self, k):
         """
         Return the log marginal probability of the data vectors assigned to
@@ -375,7 +399,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
                 + 2*X.sum(axis=0)*self.mu_0
                 )/(N/self.precision_0 + 1./self.precision)
             )  
-
+    
+    # TODO
     def log_marg(self):
         """
         Return the log marginal probability of all the data vectors given the
@@ -388,7 +413,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
         for k in xrange(self.K):
             log_prob_X_given_z += self.log_marg_k(k)
         return log_prob_X_given_z
-    '''
 
     def inv_embed(self, i):
         """
@@ -453,7 +477,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
         component `k`.
         """
         mu_N = self.mu_N_numerators[k]/self.precision_Ns[k]
-        precision_pred = self.precision_Ns[k]*self.precision / (self.precision_Ns[k] + self.precision)
+        precision_pred = self.precision_Ns[k]*self.precision / (self.precision_Ns[k] + self.precision) 
         self.log_prod_precision_preds[k] = np.log(precision_pred).sum()
         self.precision_preds[k, :] = precision_pred
 
@@ -513,7 +537,6 @@ def log_post_pred_unvectorized(gmm, i):
     for k in range(gmm.K):
         post_pred[k] = gmm.log_post_pred_k(i, k)
     return post_pred
-
 
 #-----------------------------------------------------------------------------#
 #                                MAIN FUNCTION                                #

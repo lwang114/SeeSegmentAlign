@@ -257,7 +257,6 @@ class GaussianComponentsFixedVar(object):
         #     - 0.5*(np.square(deltas)*self.precision_preds[:self.K]).sum(axis=1)
         #     )
 
-
     def log_marg_k(self, k):
         """
         Return the log marginal probability of the data vectors assigned to

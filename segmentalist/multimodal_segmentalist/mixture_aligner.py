@@ -10,8 +10,8 @@ class MixtureAligner(object):
     
     Parameters
     ----------
-    source_posteriors : an N length list of L x Ks matrices [[p(e_i=k|x) for k in range(Ks)] for i in range(L)]  
-    target_posteriors : an N length list of L x Kt matrices [[p(f_i=k|y) for k in range(Kt)] for i in range(T)]   
+    source_sentences : an N length list of integers or L x Ks matrices [[p(e_i=k|x) for k in range(Ks)] for i in range(L)]  
+    target_sentences : an N length list of integers or  L x Kt matrices [[p(f_i=k|y) for k in range(Kt)] for i in range(T)]   
     counts : an N length list of Kt x Ks matrices [[p(e_i=e, f_i_t=f) for e in range(Ks)] for f in range(Kt)]  
   """
 
@@ -44,17 +44,14 @@ class MixtureAligner(object):
     self.src_sents[i] = src_sent    
     self.trg_sents[i] = trg_sent
     self.reset_i(i)
-    # print('Max count of cluster %d before it is replaced by cluster %d: ' % (k_i, K_prev), np.sum(self.alignment_model.src2trg_counts, axis=(0, 1))[k_i]) # XXX
-    
     new_src2trg_counts = np.zeros((self.Ks, self.Kt))
-
     forward_probs, scales = self.forward(src_sent, trg_sent)  # Forward
     backward_probs = self.backward(src_sent, trg_sent, scales)  # Backward
     new_state_counts = forward_probs * backward_probs / np.maximum(np.sum(forward_probs * backward_probs, axis=(1, 2), keepdims=True), EPS)
     new_src2trg_counts = np.dot(np.transpose(np.sum(new_state_counts, axis=1)), trg_sent)  
     new_src_counts = self.post_e_i(i)
-    self.src2trg_counts[i] = new_src2trg_counts
-    self.src_counts[i] = new_src_counts   
+    self.src2trg_counts[i] = deepcopy(new_src2trg_counts)
+    self.src_counts[i] = deepcopy(new_src_counts) 
 
   def forward(self, src_sent, trg_sent):
     nState = len(src_sent)
@@ -160,7 +157,8 @@ class MixtureAligner(object):
     # print('self.src_sents[i].max(): ', self.src_sents[i].max())
     # print('translate_prob.max(): ', translate_prob.max(), translate_prob.min()) 
     # print('sorted log_prob_f_given_y: ', sorted(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), reverse=True)[:10])
-    # print('np.log(np.maximum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), EPS): ', np.log(np.maximum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), EPS)))  
+    # print('np.maximum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), EPS): ', np.maximum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), EPS)) 
+    # print('np.sum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), EPS): ', np.sum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0)))  
     return np.log(np.maximum(np.mean(np.dot(self.src_sents[i], translate_prob), axis=0), EPS)) 
 
   def align(self, src_sent, trg_sent):

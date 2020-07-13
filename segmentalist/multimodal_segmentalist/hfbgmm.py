@@ -18,7 +18,8 @@ import _cython_utils
 import utils
 
 logger = logging.getLogger(__name__)
-
+EPS = 1e-100
+NEWWORD = '*'
 
 #-----------------------------------------------------------------------------#
 #                                 FBGMM CLASS                                 #
@@ -278,19 +279,26 @@ class HierarchicalFBGMM(object):
             )
 
         log_prob_z = self.log_prob_z_given_l(log_prob_z, self.lengths[i])
+        log_post_pred = self.components.log_post_pred(i)
+        # print('embedding %d log_post_pred: ' % i + str(log_post_pred))
+        log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
+        # print('embedding %d log_post_pred_active: ' % i + str(log_post_pred_active))
+
         # (24.23) in Murphy, p. 842
-        log_prob_z[:-1] += self.components.log_post_pred(i)
-        log_prob_z[-1] += self.components.log_post_pred_new(log_prob_z[:-1])
-        # print('log_post_pred(i): ', sorted(self.components.log_post_pred(i), reverse=True)[:10])
+        log_prob_z[:-1] += log_post_pred_active 
+        log_prob_z[-1] += self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active) 
+        log_post_pred_inactive = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active)  
         return _cython_utils.logsumexp(log_prob_z)
     
     def log_prob_z_given_l(self, log_prob_z, l):
-        """ Return log probabilities of word components z with length l, with the log sum probabilities of the inactive components at the last entry """
-        allowed_indices = [iw for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))== l]
-        prior_z = self.p_init(self.components.idx_to_word[allowed_indices[0]])
+        """ 
+        Return log probabilities of word components z with length l.
+        The last entry of each row stores the log sum probabilities of the inactive components.
+        """
+        active_indices = [iw for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))== l]
+        prior_z = self.prior_z(','.join([NEWWORD]*l)) # XXX Assume words of the same length has the same prior
         log_prior_z = np.log(max(prior_z, EPS)) 
-        log_prob_z = log_prob_z[allowed_indices] # Select a subset of components allowed by the landmark length constraint
-        print('log_prob_z.shape, self.components.K: ', log_prob_z.shape, self.components.K) # XXX
+        log_prob_z = log_prob_z[active_indices] # Select a subset of components allowed by the landmark length constraint
         return np.append(log_prob_z, log_prior_z)
 
     def gibbs_sample(self, n_iter, consider_unassigned=True,
@@ -388,10 +396,11 @@ class HierarchicalFBGMM(object):
 
                 log_prob_z = self.log_prob_z_given_l(log_prob_z, self.lengths[i])                  
                 count += 1
-                 # (24.23) in Murphy, p. 842
-                log_prob_z[:-1] += self.components.log_post_pred(i)
-                # Empty (unactive) components
-                log_prob_z[-1] += self.components.log_post_pred_new(log_prob_z[:-1])
+                log_post_pred = self.components.log_post_pred(i)
+                log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
+                # (24.23) in Murphy, p. 842
+                log_prob_z[:-1] += log_post_pred_active 
+                log_prob_z[-1] += self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active)
                 if anneal_temp != 1:
                     log_prob_z = log_prob_z - logsumexp(log_prob_z)
                     log_prob_z_anneal = 1./anneal_temp * log_prob_z - logsumexp(1./anneal_temp * log_prob_z)
@@ -401,8 +410,8 @@ class HierarchicalFBGMM(object):
                 # prob_z = np.exp(log_prob_z - logsumexp(log_prob_z))
 
                 # Sample the new component assignment for `X[i]`
-                allowed_indices = [iw for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))== l]
-                k = allowed_indices[utils.draw(prob_z)]
+                active_indices = [iw for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))== l]
+                k = active_indices[utils.draw(prob_z)]
 
                 # There could be several empty, unactive components at the end
                 if k > self.components.K:
@@ -506,7 +515,7 @@ class HierarchicalFBGMM(object):
         #     )
 
         # Break the probability into L phone-level probabilities
-        log_prob_z = self.components.log_post_pred(i, vectorize=False)
+        log_prob_z = self.components.log_post_pred(i)
 
         word = []
         for l in range(L):
@@ -527,9 +536,9 @@ class HierarchicalFBGMM(object):
         """Return the number of assigned data vectors."""
         return len(np.where(self.components.assignments != -1)[0])
 
-    def p_init(self, w, p=0.5):
-      p_l = p * (1 - p) ** (len(w.split(',')) - 1)
-      return p_l / (self.components.M_max) ** len(w.split(','))
+    def prior_z(self, k, p=0.5):
+      p_l = p * (1 - p) ** (len(k.split(',')) - 1)
+      return p_l / (self.components.M_max) ** len(k.split(','))
 
 
 #-----------------------------------------------------------------------------#

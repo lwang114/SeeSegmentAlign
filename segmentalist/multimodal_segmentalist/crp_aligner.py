@@ -70,7 +70,7 @@ class CRPAligner(object):
     self.src_to_trg_counts[i] = deepcopy(np.sum(new_state_counts, axis=1)) 
     self.src_counts[i] = self.post_e_i(i)
 
-    for t, tw in enumerate(trg_sents):
+    for t, tw in enumerate(trg_sent):
       for k in range(self.Ks):
         self.restaurants[k].seat_to(tw, self.src_to_trg_counts[i][t, k]) 
 
@@ -100,7 +100,7 @@ class CRPAligner(object):
     scales = np.zeros((T,))
 
     probs_z_given_y = src_sent
-    prob_x_t_given_z = []
+    prob_x_t_given_z = [[] for k in range(self.Ks)]
     for k in range(self.Ks):
       for tw in trg_sent:
         if tw not in self.restaurants[k].p_init:
@@ -121,7 +121,7 @@ class CRPAligner(object):
       forwardProbs[t+1] += (np.dot(trans_off_diag.T, np.sum(forwardProbs[t], axis=-1)) * prob_x_t_z_given_y.T).T 
       scales[t+1] = np.sum(forwardProbs[t+1])
       forwardProbs[t+1] /= max(scales[t+1], EPS)
-    return forwardProbs, sclaes
+    return forwardProbs, scales
 
   # Inputs:
   # ------
@@ -144,7 +144,7 @@ class CRPAligner(object):
     trans_off_diag = self.trans[nState] - np.diag(np.diag(self.trans[nState]))
 
     probs_z_given_y = src_sent
-    prob_x_t_given_z = []
+    prob_x_t_given_z = [[] for k in range(self.Ks)]
     for k in range(self.Ks):
       for tw in trg_sent:
         if tw not in self.restaurants[k].p_init:
@@ -179,7 +179,7 @@ class CRPAligner(object):
     nState = len(src_sent)
     T = len(trg_sent) 
     probs_z_given_y = self.src_sents[i]
-    prob_x_t_given_z = []
+    prob_x_t_given_z = [[] for k in range(self.Ks)]
     for k in range(self.Ks):
       for tw in trg_sent:
         if tw not in self.restaurants[k].p_init:
@@ -190,8 +190,7 @@ class CRPAligner(object):
     prob_x_t_given_z = np.asarray(prob_x_t_given_z).T   
 
     newConceptCounts = np.zeros((nState, self.Ks))
-    probs_x_given_y_concat = np.zeros((T, nState*self.Ks, nState))
-    probs_x_given_z = np.transpose(np.dot(prob_ph_given_z, np.transpose(probs_ph_given_x)))
+    probs_x_given_y_concat = np.zeros((T, nState*self.Ks, nState)) 
 
     for i in range(nState):
       for k in range(self.Ks):
@@ -242,8 +241,8 @@ class CRPAligner(object):
   def align(self, src_sent, trg_sent):
     nState = len(src_sent)
     T = len(trg_sent) 
-    probs_z_given_y = self.src_sents[i]
-    prob_x_t_given_z = []
+    probs_z_given_y = src_sent
+    prob_x_t_given_z = [[] for k in range(self.Ks)]
     for k in range(self.Ks):
       for tw in trg_sent:
         if tw not in self.restaurants[k].p_init:
@@ -276,7 +275,7 @@ class CRPAligner(object):
 
   def translate_prob_f(self, trg_word):
     """ Returns a Ks x 1 vector [p(trg_word|e) for e in range(Ks)] """
-    return np.asarray([self.restaurants[k].prob(f, self.p_init(f)) for k in range(self.Ks)])
+    return np.asarray([self.restaurants[k].prob(trg_word, self.p_init(trg_word)) for k in range(self.Ks)])
 
   def get_trg_vocabs(self):
     return set([w for k in range(self.Ks) for w in self.restaurants[k].name2table])
@@ -333,10 +332,15 @@ class Restaurant:
       tables[i] += w
 
   def unseat_from(self, k, w=1):
+    if k not in self.name2table: # If key does not represent any table, do nothing
+      return
+
     self.ncustomers -= 1
     i = self.name2table[k]
     tables = self.tables
     tables[i] -= w
+    # if k == '1':
+    #   print('self.tables[1]: ', self.tables[self.name2table[k]])
     if tables[i] <= EPS: # cleanup empty table
       k_new = self.table_names[-1] 
       self.table_names[i] = k_new # replace the empty table with the last table

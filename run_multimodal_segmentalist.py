@@ -11,6 +11,7 @@ from segmentalist.multimodal_segmentalist.hierarchical_multimodal_unigram_acoust
 import segmentalist.multimodal_segmentalist.hfbgmm as hfbgmm
 import segmentalist.multimodal_segmentalist.crp_aligner as crp_aligner
 import segmentalist.multimodal_segmentalist.hierarchical_gaussian_components_fixedvar as hierarchical_gaussian_components_fixedvar
+from segmentalist.multimodal_segmentalist.mixture_multimodal_unigram_acoustic_wordseg import *
 
 from scipy import signal
 import argparse
@@ -65,6 +66,7 @@ parser.add_argument("--am_K", type=int, default=65, help="Number of acoustic clu
 parser.add_argument("--vm_class", choices={"vgmm"}, default='vgmm', help="Class of visual model")
 parser.add_argument("--vm_K", type=int, default=65, help="Number of visual clusters")
 parser.add_argument('--aligner_class', choices={'mixture_aligner', 'crp_aligner'}, default='mixture_aligner', help='Class of alignment model')
+parser.add_argument('--segmenter_class', choices={'standard', 'mixture'}, default='standard', help='Class of segmentation model')
 parser.add_argument("--exp_dir", type=str, default='./', help="Experimental directory")
 parser.add_argument("--audio_feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'synthetic'}, default='mfcc', help="Acoustic feature type")
 parser.add_argument("--image_feat_type", type=str, choices={'res34', 'synthetic'}, default='res34', help="Visual feature type")
@@ -125,26 +127,25 @@ elif args.audio_feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-# Generate acoustic embeddings, vec_ids_dict and durations_dict 
-audio_feats = np.load(audio_feature_file)
-embedding_mats = {}
-concept_ids = []
-vec_ids_dict = {}
-durations_dict = {}
-landmarks_dict = {}
-if args.landmarks_file: 
-  landmarks_dict = np.load(args.landmarks_file)
-  landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
-  if landmarks_dict[landmark_ids[0]][0] > 0: # If the landmarks do not start with frame 0, append 0 to the landmarks
-    landmarks_dict = {i_lm: np.append([0], landmarks_dict[i_lm]) for i_lm in landmark_ids}
-else:
-  landmark_ids = []
-
 start_step = 2
-print(len(list(audio_feats.keys())))
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
+  # Generate acoustic embeddings, vec_ids_dict and durations_dict 
+  audio_feats = np.load(audio_feature_file)
+  embedding_mats = {}
+  concept_ids = []
+  vec_ids_dict = {}
+  durations_dict = {}
+  landmarks_dict = {}
+  if args.landmarks_file: 
+    landmarks_dict = np.load(args.landmarks_file)
+    landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
+    if landmarks_dict[landmark_ids[0]][0] > 0: # If the landmarks do not start with frame 0, append 0 to the landmarks
+      landmarks_dict = {i_lm: np.append([0], landmarks_dict[i_lm]) for i_lm in landmark_ids}
+  else:
+    landmark_ids = []
+  print(len(list(audio_feats.keys())))
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
@@ -158,6 +159,7 @@ if start_step == 0:
       feat_mat = feat_mat[:2000, :args.mfcc_dim]
     else:
       feat_mat = feat_mat[:, :args.mfcc_dim]
+
     # print('np.mean(feat), np.std(feat): ', np.mean(feat_mat), np.std(feat_mat))
     feat_mat = (feat_mat - np.mean(feat_mat)) / np.maximum(np.std(feat_mat), EPS)
 
@@ -237,8 +239,8 @@ if start_step <= 2:
     am_alpha = args.am_alpha
     am_K = args.am_K
     m_0 = np.zeros(D)
-    k_0 = 0.05
-    S_0 = 0.002*np.ones(D)
+    k_0 = 0.2 #0.05
+    S_0 = 0.2*np.ones(D) # 0.002*np.ones(D) 
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
   elif args.am_class == "hfbgmm":
     D = args.embed_dim
@@ -246,8 +248,8 @@ if start_step <= 2:
     am_alpha = args.am_alpha
     am_K = args.am_K
     m_0 = np.zeros(D)
-    k_0 = 0.05
-    S_0 = 0.002*np.ones(D)
+    k_0 = 0.2
+    S_0 = 0.2*np.ones(D)
     am_param_prior = hierarchical_gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
   else:
     raise ValueError("am_class %s is not supported" % args.am_class)
@@ -269,13 +271,14 @@ if start_step <= 2:
 
   elif args.am_class == "hfbgmm":
     if args.aligner_class == 'crp_aligner':
-      aligner_class = mixture_aligner.CRPAligner
+      aligner_class = crp_aligner.CRPAligner
     else:
       Warning("aligner class %s is not compatible with am class %s, switch to crp aligner" % (args.aligner_class, args.am_class))
       aligner_class = crp_aligner.CRPAligner
 
   if args.am_class == "fbgmm":
-    segmenter = MultimodalUnigramAcousticWordseg(
+    if args.segmenter_class == 'standard':
+      segmenter = MultimodalUnigramAcousticWordseg(
         am_class, am_alpha, am_K, am_param_prior,
         vm_class, vm_K, vm_param_prior,
         aligner_class,
@@ -284,10 +287,25 @@ if start_step <= 2:
         seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
         p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
         time_power_term=args.time_power_term,
-        init_am_assignments='one-by-one', 
+        init_am_assignments='rand',
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         model_name=args.exp_dir+'mbes_gmm'
-        ) 
+        )
+        # XXX init_am_assignments='one-by-one',
+    elif args.segmenter_class == 'mixture':
+      segmenter = MixtureMultimodalUnigramAcousticWordseg(
+        am_class, am_alpha, am_K, am_param_prior,
+        vm_class, vm_K, vm_param_prior,
+        a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
+        v_embedding_mats, v_vec_ids_dict,
+        seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
+        p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
+        time_power_term=args.time_power_term,
+        init_am_assignments='visually-guided', 
+        n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
+        model_name=args.exp_dir+'mbes_gmm'
+        ) # XXX init_am_assignments='one-by-one'
+
     # Perform sampling
     record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule="linear", anneal_gibbs_am=True) 
   elif args.am_class == "hfbgmm":

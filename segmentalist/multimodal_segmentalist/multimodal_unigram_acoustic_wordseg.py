@@ -279,7 +279,7 @@ class MultimodalUnigramAcousticWordseg(object):
         else:
             assert False, "invalid `fb_type`: " + fb_type
 
-    def gibbs_sample_i(self, i, anneal_temp=1, anneal_gibbs_am=False, log_prob_z=[]):
+    def gibbs_sample_i(self, i, anneal_temp=1, anneal_gibbs_am=False):
         """
         Block Gibbs sample new boundaries and embedding assignments for
         utterance `i`.
@@ -681,8 +681,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        # if i_utt > 29:
-        #   break
+        if i_utt > 29:
+          break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 
