@@ -392,6 +392,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             # npt.assert_almost_equal(np.sum(log_margs*np.array(lengths)), log_prob)
 
         # Assign new embeddings to components in `acoustic_model`
+        print('In HM gibbs_sample_i, assign word cluster for example %d' % i)
         for i_embed in self.utterances.get_segmented_embeds_i(i):
             if i_embed == -1:
                 # This only happens because of backtracking in the forward-backward functions

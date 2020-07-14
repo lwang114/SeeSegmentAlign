@@ -30,10 +30,13 @@ NULL = "NULL"
 EPS = 1e-100
 
 def embed(y, n, args):
-  if y.shape[1] < n and args.technique != 'mean': 
+  if y.shape[1] < n and args.technique != 'mean' and args.technique != 'rasanen': 
       args.technique = "resample"
 
-  y = y[:, :args.mfcc_dim]
+  if y.shape[1] == 0:
+      return np.zeros((args.embed_dim,)) 
+
+  y = y[:args.mfcc_dim, :]
   # Downsample
   if args.technique == "interpolate":
       x = np.arange(y.shape[1])
@@ -42,16 +45,38 @@ def embed(y, n, args):
       y_new = f(x_new).T.flatten(flatten_order) #.flatten("F")
   elif args.technique == "resample": 
       y_new = signal.resample(y.astype("float32"), n, axis=1).T.flatten(flatten_order) #.flatten("F")
-  elif args.technique == "rasanen":
+  elif args.technique == "rasanen": 
       # Taken from Rasenen et al., Interspeech, 2015
       d_frame = y.shape[0]
-      n_frames_in_multiple = int(np.floor(y.shape[1] / n)) * n
-      y_new = np.mean(
-          y[:, :n_frames_in_multiple].reshape((d_frame, n, -1)), axis=-1
-          ).T.flatten(flatten_order) #.flatten("F")
+      if y.shape[1] >= n:
+        n_frames_in_multiple = int(np.floor(y.shape[1] / n)) * n
+        n_frames_in_multiple_max = (int(np.floor(y.shape[1] / n)) + 1) * n
+        if abs(y.shape[1] - n_frames_in_multiple) > abs(y.shape[1] - n_frames_in_multiple_max):
+          n_frames_in_multiple = n_frames_in_multiple_max 
+          y_new = np.concatenate(
+                [y, np.tile(y[:, -1, np.newaxis], (1, n_frames_in_multiple - y.shape[1]))], axis=1
+                )
+          y_new = np.mean(y_new.reshape((d_frame, n, -1)), axis=-1).T.flatten(flatten_order)
+        else:
+          y_new = np.mean(
+            y[:, :n_frames_in_multiple].reshape((d_frame, n, -1)), axis=-1
+            ).T.flatten(flatten_order) #.flatten("F")
+      else:
+          n_min = int(np.floor(n / y.shape[1])) 
+          n_max = n_min + 1
+          if abs(n_max * y.shape[1] - n) >= abs(n_min * y.shape[1] - n):
+              n_per_frame = n_min
+          else:
+              n_per_frame = n_max
+            
+          y_new = np.tile(y[:, :, np.newaxis], (1, 1, n_per_frame)).reshape(d_frame, -1)
+          if y_new.shape[1] > n:
+              y_new = y_new[:n]
+          if y_new.shape[1] < n:
+              y_new = np.concatenate(
+                [y_new, np.tile(y_new[:, -1, np.newaxis], (1, n - y_new.shape[1]))], axis=1
+                ).T.flatten(flatten_order)
   elif args.technique == 'mean':
-      if y.shape[1] == 0:
-        return np.zeros((args.embed_dim,)) 
       y_new = np.mean(y, axis=1)
   return y_new
 
@@ -77,7 +102,7 @@ parser.add_argument('--use_null', action='store_true')
 parser.add_argument('--n_iter', type=int, default=300, help='Number of Gibbs sampling iterations')
 parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Initial boundary probability')
 parser.add_argument('--time_power_term', type=float, default=1., help='Scaling of the per-frame scaling')
-parser.add_argument('--am_alpha', type=float, default=10., help='Concentration parameter')
+parser.add_argument('--am_alpha', type=float, default=1., help='Concentration parameter')
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
 parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
 
@@ -127,7 +152,7 @@ elif args.audio_feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-start_step = 2
+start_step = 0
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
@@ -185,7 +210,7 @@ if start_step == 0:
             i = t*(t - 1)/2
             vec_ids[i + cur_start] = i_embed
             n_down_slices = args.embed_dim / feat_dim
-            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate)
+            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate) 
             embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
@@ -290,8 +315,7 @@ if start_step <= 2:
         init_am_assignments='rand',
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         model_name=args.exp_dir+'mbes_gmm'
-        )
-        # XXX init_am_assignments='one-by-one',
+        ) # XXX init_am_assignments='one-by-one',
     elif args.segmenter_class == 'mixture':
       segmenter = MixtureMultimodalUnigramAcousticWordseg(
         am_class, am_alpha, am_K, am_param_prior,
@@ -322,6 +346,7 @@ if start_step <= 2:
         init_am_assignments='kmeans', 
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         am_M=am_M, am_T=am_T,
+        embed_technique=args.technique,
         model_name=args.exp_dir+'hierarchical_mbes_gmm'
         ) 
 

@@ -279,7 +279,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
     def del_phone_component(self, m):
         """Remove the subword component `m`."""
         logger.debug("Deleting subword component " + str(m))
-        print('In HG del_phone, delete phone: ' + str(self.idx_to_phone[m]) + ' ' + str(m))
+        # print('In HG del_phone, delete phone: ' + str(self.idx_to_phone[m]) + ' ' + str(m))
         self.M -= 1
         phone = self.idx_to_phone[m]
         if m != self.M:
@@ -349,18 +349,23 @@ class HierarchicalGaussianComponentsFixedVar(object):
         n_min = max(2, int(self.T / self.lengths[i]))
         n_max = n_min + 1
         # TODO Divide the intervals proportional to the durations of the segments
-        if abs(n_max * self.lengths[i] - self.T) > abs(n_min * self.lengths[i] - self.T):
-          n = n_min
+        if abs(n_max * self.lengths[i] - self.T) >= abs(n_min * self.lengths[i] - self.T):
+           n = n_min
         else:
-          n = n_max     
+           n = n_max     
         Dr = int(self.D / self.T * n)
         Xr = self.embed(self.X[i], n*self.lengths[i])  
+        # print('In HG log_post_pred, Xr.shape, self.lengths[i]: ' + str(Xr.shape) + ' ' + str(self.lengths[i]))
+        # print('In HG log_post_pred, n, Dr: ' + str(n) + ' ' + str(Dr))
+        
         mu_Ns = np.asarray([self.embed(self.mu_N_numerators[m]/self.precision_Ns[m], n) for m in range(self.M)])
         precision_preds = np.asarray([self.embed(self.precision_preds[m], n) for m in range(self.M)])
         log_precision_preds = self.log_prod_precision_preds[:self.M]
 
         log_post_preds = np.nan*np.ones((self.lengths[i], self.M_max))
+        # print('In HG log_post_pred, X[%d]: ' % (i) + str(self.X[i]))
         for l in range(self.lengths[i]):
+          # print('In HG log_post_pred, Xr[%d]: ' % (l) + str(Xr[l*Dr:(l+1)*Dr]))
           deltas = mu_Ns - Xr[l*Dr:(l+1)*Dr]
           log_post_preds[l, :self.M] = (
               self._cached_neg_half_D_log_2pi
@@ -374,6 +379,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
         #     - 0.5*(np.square(deltas)*self.precision_preds[:self.K]).sum(axis=1)
         #     ) 
         log_post_preds[:, self.M:] = np.tile(self.log_prior(i), (1, self.M_max-self.M))
+        # print('In HG log_post_pred, np.argmax(log_post_preds, axis=1): ' + str(np.argmax(log_post_preds, axis=1)))
         return log_post_preds
 
     # TODO
@@ -428,10 +434,12 @@ class HierarchicalGaussianComponentsFixedVar(object):
         return self.__embed(x.reshape(self.T, -1).T, n, technique=self.technique).T.flatten("C")
 
     def __embed(self, y, n, technique='resample'):
-      if y.shape[1] < n and technique != 'mean': 
+      if y.shape[1] < n and technique != 'mean' and technique != 'rasanen': 
           technique = "resample"
 
       # Downsample
+      if y.shape[1] == 0:
+          return np.zeros((y.shape[0],)) 
       if technique == "interpolate":
           x = np.arange(y.shape[1])
           f = interpolate.interp1d(x, y, kind="linear")
@@ -439,16 +447,38 @@ class HierarchicalGaussianComponentsFixedVar(object):
           y_new = f(x_new)
       elif technique == "resample": 
           y_new = signal.resample(y.astype("float32"), n, axis=1)
-      elif technique == "rasanen":
-          # Taken from Rasenen et al., Interspeech, 2015
-          d_frame = y.shape[0]
+      elif technique == "rasanen": 
+        # Taken from Rasenen et al., Interspeech, 2015
+        d_frame = y.shape[0]
+        if y.shape[1] >= n:
           n_frames_in_multiple = int(np.floor(y.shape[1] / n)) * n
-          y_new = np.mean(
+          n_frames_in_multiple_max = (int(np.floor(y.shape[1] / n)) + 1) * n
+          if abs(y.shape[1] - n_frames_in_multiple) > abs(y.shape[1] - n_frames_in_multiple_max):
+            n_frames_in_multiple = n_frames_in_multiple_max 
+            y_new = np.concatenate(
+                  [y, np.tile(y[:, -1, np.newaxis], (1, n_frames_in_multiple - y.shape[1]))], axis=1
+                  )
+            y_new = np.mean(y_new.reshape((d_frame, n, -1)), axis=-1)
+          else:
+            y_new = np.mean(
               y[:, :n_frames_in_multiple].reshape((d_frame, n, -1)), axis=-1
-              )
+              ) 
+        else:
+          n_min = int(np.floor(n / y.shape[1])) 
+          n_max = n_min + 1
+          if abs(n_max * y.shape[1] - n) >= abs(n_min * y.shape[1] - n):
+              n_per_frame = n_min
+          else:
+              n_per_frame = n_max
+            
+          y_new = np.tile(y[:, :, np.newaxis], (1, 1, n_per_frame)).reshape(d_frame, -1)
+          if y_new.shape[1] > n:
+              y_new = y_new[:n]
+          if y_new.shape[1] < n:
+              y_new = np.concatenate(
+                [y_new, np.tile(y_new[:, -1, np.newaxis], (1, n - y_new.shape[1]))], axis=1
+                )          
       elif technique == 'mean':
-          if y.shape[1] == 0:
-            return np.zeros((y.shape[0],)) 
           y_new = np.mean(y, axis=1, keepdims=True)
       return y_new
 
