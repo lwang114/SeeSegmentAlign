@@ -254,7 +254,7 @@ class FBGMM(object):
         return log_prob_z + log_prob_X_given_z
 
     # @profile
-    def log_marg_i(self, i, log_prob_z=[], log_prob_z_given_y=[]):
+    def log_marg_i(self, i, log_prob_z=[], log_prob_z_given_y=[], scale=False):
         """
         Return the log marginal of the i'th data vector: p(x_i)
 
@@ -282,13 +282,18 @@ class FBGMM(object):
         #         )
         #     )
         # logger.info("log_prob_z: " + str(log_prob_z))
-        
-        # (24.23) in Murphy, p. 842
-        log_prob_z[:self.components.K] += self.components.log_post_pred(i)
-        # Empty (unactive) components
-        log_prob_z[self.components.K:] += self.components.log_prior(i)
-        return _cython_utils.logsumexp(log_prob_z)
-        # return logsumexp(log_prob_z)
+       
+        if scale:
+          log_likelihood_z = np.nan * np.ones(log_prob_z.shape)
+          log_likelihood_z[:self.components.K] = self.components.log_post_pred(i)
+          log_likelihood_z[self.components.K:] = self.components.log_prior(i)
+          log_prob_z += log_likelihood_z - _cython_utils.logsumexp(log_likelihood_z)
+        else: 
+          # (24.23) in Murphy, p. 842
+          log_prob_z[:self.components.K] += self.components.log_post_pred(i)
+          # Empty (unactive) components
+          log_prob_z[self.components.K:] += self.components.log_prior(i)
+        return _cython_utils.logsumexp(log_prob_z) 
  
     def gibbs_sample(self, n_iter, consider_unassigned=True,
             anneal_schedule=None, anneal_start_temp_inv=0.1,

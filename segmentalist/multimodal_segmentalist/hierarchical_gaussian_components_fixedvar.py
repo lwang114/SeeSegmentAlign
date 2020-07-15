@@ -136,6 +136,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
             # Apart from unassigned (-1), components should be labelled from 0
             assert set(assignments).difference([-1]) == set(range(assignments.max() + 1))
             self.assignments = assignments
+            self.phone_assignments = deepcopy(assignments) # XXX
 
             # Add the data items
             for k in range(self.assignments.max() + 1):
@@ -216,11 +217,12 @@ class HierarchicalGaussianComponentsFixedVar(object):
           assert self.K == len(self.idx_to_word)
         
         Xr = self.inv_embed(i)
-        for l, m in enumerate(k): # Update component stats
-          self.mu_N_numerators[m, :] += self.precision*Xr[l]
-          self.precision_Ns[m, :] += self.precision
-          self.phone_counts[m] += 1
-          self._update_log_prod_precision_pred_and_precision_pred(m)
+        if len(k) == 1: # XXX
+          for l, m in enumerate(k): # Update component stats
+            self.mu_N_numerators[m, :] += self.precision*Xr[l]
+            self.precision_Ns[m, :] += self.precision
+            self.phone_counts[m] += 1
+            self._update_log_prod_precision_pred_and_precision_pred(m)
         
         self.counts[self.word_to_idx[w]] += 1
         self.assignments[i] = self.word_to_idx[w]
@@ -246,16 +248,17 @@ class HierarchicalGaussianComponentsFixedVar(object):
             self.assignments[i] = -1
        
             Xr = self.inv_embed(i)
-            for l, m in enumerate(word.split(',')):
-              if not m in self.phone_to_idx: # Only do something if the phone component has not been deleted
-                continue
-              m_idx = self.phone_to_idx[m]
-              if self.phone_counts[m_idx] == 0: # Delete the phone component if it is empty 
-                self.del_phone_component(m_idx)          
-              else: # Update the component stats if it is not empty 
-                self.mu_N_numerators[m_idx, :] -= self.precision*Xr[l]
-                self.precision_Ns[m_idx, :] -= self.precision
-                self._update_log_prod_precision_pred_and_precision_pred(m_idx)
+            if len(word.split(',')) == 1: # XXX
+              for l, m in enumerate(word.split(',')):
+                if not m in self.phone_to_idx: # Only do something if the phone component has not been deleted
+                  continue
+                m_idx = self.phone_to_idx[m]
+                if self.phone_counts[m_idx] == 0: # Delete the phone component if it is empty 
+                  self.del_phone_component(m_idx)          
+                else: # Update the component stats if it is not empty 
+                  self.mu_N_numerators[m_idx, :] -= self.precision*Xr[l]
+                  self.precision_Ns[m_idx, :] -= self.precision
+                  self._update_log_prod_precision_pred_and_precision_pred(m_idx)
 
     def del_component(self, k):
         """Remove the word component `k`, where `k` is a phone index or list of phone indices.""" 

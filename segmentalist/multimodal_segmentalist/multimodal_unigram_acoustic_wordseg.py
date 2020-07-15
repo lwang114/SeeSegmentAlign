@@ -532,7 +532,7 @@ class MultimodalUnigramAcousticWordseg(object):
 
         return record_dict
 
-    def get_vec_embed_log_probs(self, vec_ids, durations, log_prob_z=[]):
+    def get_vec_embed_log_probs(self, vec_ids, durations, log_prob_z=[], m_poisson=1.):
         """
         Return the log marginal probs of the `vec_ids` embeddings, scaled by
         the given `durations`.
@@ -544,13 +544,13 @@ class MultimodalUnigramAcousticWordseg(object):
             if embed_id == -1:
                 continue
             # print('log_prob_z inside get_vec_embed: ', log_prob_z)
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=deepcopy(log_prob_z)) 
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=deepcopy(log_prob_z), scale=True) 
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else: 
-                vec_embed_log_probs[i] *= durations[i]**self.time_power_term
+                vec_embed_log_probs[i] += 0. # durations[i] * np.log(m_poisson) - math.lgamma(durations[i] + 1) - m_poisson # Poisson length distribution # XXX *= durations[i]**self.time_power_term
 
         # # Scale log marginals by number of frames
         # N = int(-1 + np.sqrt(1 + 4 * 2 * len(vec_ids))) / 2  # see `__init__`

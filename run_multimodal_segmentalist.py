@@ -152,7 +152,7 @@ elif args.audio_feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-start_step = 0
+start_step = 2
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()

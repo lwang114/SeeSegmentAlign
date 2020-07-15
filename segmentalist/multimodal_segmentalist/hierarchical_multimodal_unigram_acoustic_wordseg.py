@@ -138,7 +138,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             beta_sent_boundary=2.0, lms=1., wip=0., fb_type="standard",
             init_am_assignments="rand",
             time_power_term=1., 
-            am_M = None, am_T = None,
+            am_M = None, am_T = None, 
+            embed_technique='resample',
             model_name='hierarchical_mbes_gmm'):
 
         self.model_name = model_name
@@ -227,7 +228,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             self.acoustic_model = am_class(
                 a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                p=p_boundary_init/2., M=am_M, T=am_T)
+                p=p_boundary_init/2., M=am_M, T=am_T, embed_technique=embed_technique)
 
         elif init_am_assignments == "rand":
 
@@ -246,7 +247,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             self.acoustic_model = am_class(
                 a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                M=am_M, T=am_T)
+                M=am_M, T=am_T, embed_technique=embed_technique)
 
         elif init_am_assignments == "one-by-one":
             # Initialize `acoustic_model`
@@ -254,7 +255,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             self.acoustic_model = am_class(
                 a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                M=am_M, T=am_T)
+                M=am_M, T=am_T, embed_technique=embed_technique)
             # Assign the embeddings one-by-one
             for i_embed in init_embeds:
                 self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, log_prob_z=[])
@@ -268,7 +269,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             self.acoustic_model = am_class(
                 a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                M=am_M, T=am_T)
+                M=am_M, T=am_T, embed_technique=embed_technique)
         else:
             assert False, "invalid value for `init_am_assignments`: " + init_am_assignments
         
@@ -391,8 +392,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             logger.debug("log p(X): " + str(self.acoustic_model.log_marg()))
             # npt.assert_almost_equal(np.sum(log_margs*np.array(lengths)), log_prob)
 
-        # Assign new embeddings to components in `acoustic_model`
-        print('In HM gibbs_sample_i, assign word cluster for example %d' % i)
+        # Assign new embeddings to components in `acoustic_model` 
         for i_embed in self.utterances.get_segmented_embeds_i(i):
             if i_embed == -1:
                 # This only happens because of backtracking in the forward-backward functions
@@ -405,6 +405,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 # else:
                 #     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
                 self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
+                print('In HM gibbs sample, assignment[%d]: ' % i_embed + str(self.acoustic_model.components.assignments[i_embed]))
                 
             elif self.fb_type == "viterbi":
                 self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z)) 
@@ -566,9 +567,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         vec_embed_log_probs = -np.inf*np.ones(len(vec_ids))
         for i, embed_id in enumerate(vec_ids):
             if embed_id == -1:
-                continue
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, deepcopy(log_prob_z)) 
-
+                continue 
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, deepcopy(log_prob_z))  
         return vec_embed_log_probs + self.wip
 
     def calc_p_continue(self):
@@ -639,8 +639,6 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         for i_embed in self.utterances.get_segmented_embeds_i(i):
           S += (a_embeddings[i_embed] - m_0) ** 2 / count
       
-      print('m_0:' + str(m_0))
-      print('S:' + str(S))
       return FixedVarPrior(S/30., m_0, S/3.)
 
 
@@ -831,6 +829,7 @@ def forward_backward(vec_embed_log_probs, log_p_continue, N, n_slices_min=0,
             vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut] +
             log_alphas[:t][-n_slices_max:n_slices_min_cut]
             )
+        # print('In HM forward backward, time %d log_p_k: ' % (t) + ' ' + str(log_p_k)) # XXX
         assert not np.isnan(np.sum(log_p_k))
         if np.all(log_p_k == -np.inf):
             logger.debug(

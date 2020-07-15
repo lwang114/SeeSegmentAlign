@@ -494,13 +494,14 @@ class UnigramAcousticWordseg(object):
         for i, embed_id in enumerate(vec_ids):
             if embed_id == -1:
                 continue
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id)
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, scale=True)
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else:
-                vec_embed_log_probs[i] *= durations[i]**self.time_power_term
+                m_poisson = 1.
+                vec_embed_log_probs[i] *= int(durations[i]) * np.log(m_poisson) - math.lgamma(int(durations[i]) + 1) - m_poisson # Poisson length distribution # XXX durations[i]**self.time_power_term
 
         # # Scale log marginals by number of frames
         # N = int(-1 + np.sqrt(1 + 4 * 2 * len(vec_ids))) / 2  # see `__init__`

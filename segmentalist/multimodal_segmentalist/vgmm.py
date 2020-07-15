@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 from scipy.special import logsumexp
 from copy import deepcopy
+from gaussian_components_fixedvar import *
 
 class VGMM(object):
   """

@@ -1,6 +1,9 @@
 import numpy as np
 from copy import deepcopy
 from scipy.special import logsumexp
+import random
+random.seed(1)
+np.random.seed(1)
 #-----------------------------------------------------------------------------# 
 #                  CHINESE RESTAURANT PROCESS ALIGNER CLASS                   #
 #-----------------------------------------------------------------------------#
@@ -26,8 +29,12 @@ class CRPAligner(object):
   def __init__(self, source_sentences, target_sentences, Ks, Kt, alpha=1.):
     self.Ks = Ks
     self.Kt = Kt
-    self.src_sents = source_sentences
-    self.trg_sents = target_sentences
+    
+    if isinstance(source_sentences, basestring) and isinstance(target_sentences, basestring):
+      self.read_corpus(source_sentences, target_sentences)
+    else: 
+      self.src_sents = source_sentences
+      self.trg_sents = target_sentences
     self.N = len(self.src_sents)
     self.alpha = alpha
     self.length_counts = {}
@@ -47,6 +54,19 @@ class CRPAligner(object):
   def setup_restaurants(self):
     for i, (src_sent, trg_sent) in enumerate(zip(self.src_sents, self.trg_sents)):
       self.add_item(i, src_sent, trg_sent)    
+
+  def read_corpus(self, src_corpus_file, trg_corpus_file):
+    src_npz = np.load(src_corpus_file)
+    self.src_sents = [src_npz[k] for k in sorted(src_npz, key=lambda x:int(x.split('_')[-1]))] # XXX
+    self.trg_sents = []
+    f = open(trg_corpus_file, 'r')
+    # i = 0
+    for line in f:
+      # if i > 29: # XXX
+      #   break
+      # i += 1
+      trg_sent = line.strip().split()
+      self.trg_sents.append(trg_sent)
 
   def add_item(self, i, src_sent, trg_sent):
     """
@@ -238,6 +258,18 @@ class CRPAligner(object):
     log_prob_f_given_y_i[NEWWORD] = np.log(np.maximum(1 - p_active, EPS)) # TODO Check this 
     return log_prob_f_given_y_i 
 
+  def gibbs_sample(self, n_iter=20):
+    order = list(range(len(self.src_sents)))
+    for epoch in range(n_iter):
+      print('Epoch %d' % epoch)
+      random.shuffle(order)
+      for i in order:
+        src_sent = self.src_sents[i]
+        trg_sent = self.trg_sents[i]
+        if epoch > 0:
+          self.del_item(i)
+        self.add_item(i, src_sent, trg_sent) 
+
   def align(self, src_sent, trg_sent):
     nState = len(src_sent)
     T = len(trg_sent) 
@@ -375,3 +407,36 @@ class Restaurant:
       sorted_indices = sorted(list(range(self.ntables)), key=lambda x:self.tables[x], reverse=True)
       for i in sorted_indices:
         f.write('%s %.5f\n' % (self.table_names[i], self.tables[i]))
+
+if __name__ == '__main__':
+  src_feat_file = '../../data/mscoco2k_concept_gaussian_vectors.npz'
+  src_id_file = '../exp/july2_mbesgmm/v_vec_ids_dict.npz'
+  src_sentence_file = '../../data/mscoco2k_concept_posteriors.npz'
+  trg_sentence_file = '../../data/mscoco2k_image_captions.txt'
+  
+  from vgmm import *
+  from gaussian_components_fixedvar import *
+
+  src_npz = np.load(src_feat_file)
+  src_id_npz = np.load(src_id_file)
+  src_feats = [src_npz[k] for k in sorted(src_npz, key=lambda x:int(x.split('_')[-1]))] # XXX 
+
+  width = 1.
+  m_0 = np.zeros(src_feats[0].shape[1])  
+  prior = FixedVarPrior(width, m_0, width)
+
+  src_ids = []
+  count = 0
+  for k in sorted(src_id_npz, key=lambda x:int(x.split('_')[-1])): # XXX
+    src_id = src_id_npz[k] 
+    src_ids.append(src_id + count)
+    count += len(src_id)
+
+  vgmm = VGMM(np.concatenate(src_feats), prior, 65, src_ids)
+  src_sentences = {'arr_'+str(i):np.asarray([vgmm.prob_z_i(i_embed) for i_embed in src_ids[i]]) for i in range(len(src_feats))} 
+  np.savez(src_sentence_file, **src_sentences)
+  
+  crp_aligner = CRPAligner(src_sentence_file, trg_sentence_file, Ks=65, Kt=65)
+  crp_aligner.gibbs_sample()
+  with open('results.txt', 'w') as f:
+    f.write(str(crp_aligner.align_corpus()))

@@ -130,33 +130,33 @@ elif args.feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-# Generate acoustic embeddings, vec_ids_dict and durations_dict 
-audio_feats = np.load(datapath)
-f = open(image_concept_file, "r")
-image_concepts = []
-for line in f:
-  image_concepts.append(line.strip().split())
-f.close()
-
-with open(concept2idx_file, "r") as f:
-  concept2idx = json.load(f)
-
-embedding_mats = {}
-concept_ids = []
-vec_ids_dict = {}
-durations_dict = {}
-landmarks_dict = {}
-if args.landmarks_file: 
-  landmarks_dict = np.load(args.landmarks_file)
-  landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
-else:
-  landmark_ids = []
-
 start_step = 1 
-print(len(list(audio_feats.keys())))
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
+
+  # Generate acoustic embeddings, vec_ids_dict and durations_dict 
+  audio_feats = np.load(datapath)
+  f = open(image_concept_file, "r")
+  image_concepts = []
+  for line in f:
+    image_concepts.append(line.strip().split())
+  f.close()
+
+  with open(concept2idx_file, "r") as f:
+    concept2idx = json.load(f)
+  print(len(list(audio_feats.keys())))
+
+  embedding_mats = {}
+  concept_ids = []
+  vec_ids_dict = {}
+  durations_dict = {}
+  landmarks_dict = {}
+  if args.landmarks_file: 
+    landmarks_dict = np.load(args.landmarks_file)
+    landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
+  else:
+    landmark_ids = []
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX

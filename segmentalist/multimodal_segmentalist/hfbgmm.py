@@ -62,14 +62,14 @@ class HierarchicalFBGMM(object):
 
     def __init__(self, X, prior, alpha, K, lengths,
             assignments="rand", covariance_type="full", lms=1.0, 
-            p=0.5, M=None, T=None):
+            p=0.5, M=None, T=None, embed_technique='resample'):
         self.alpha = alpha
         self.prior = prior
         self.lengths = lengths
         self.covariance_type = covariance_type
         self.lms = lms
         self.p = p
-        self.setup_components(K, assignments, X, M=M, T=T)
+        self.setup_components(K, assignments, X, M=M, T=T, embed_technique=embed_technique)
 
         # N, D = X.shape
 
@@ -98,7 +98,7 @@ class HierarchicalFBGMM(object):
         # else:
         #     assert False, "Invalid covariance type."
 
-    def setup_components(self, K, assignments="rand", X=None, M=None, T=None):
+    def setup_components(self, K, assignments="rand", X=None, M=None, T=None, embed_technique='resample'):
         """
         Setup the `components` attribute.
 
@@ -139,7 +139,7 @@ class HierarchicalFBGMM(object):
         # elif self.covariance_type == "diag":
         #     self.components = GaussianComponentsDiag(X, self.prior, assignments, K_max=K)
         if self.covariance_type == "fixed":
-          self.components = HierarchicalGaussianComponentsFixedVar(X, self.prior, self.lengths, assignments=assignments, K_max=K, M_max=M, T=T)
+          self.components = HierarchicalGaussianComponentsFixedVar(X, self.prior, self.lengths, assignments=assignments, K_max=K, M_max=M, T=T, embed_technique=embed_technique)
         else:
             assert False, "Invalid covariance type."
 
@@ -278,17 +278,19 @@ class HierarchicalFBGMM(object):
             - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha)
             )
 
-        log_prob_z = self.log_prob_z_given_l(log_prob_z, self.lengths[i])
+
+        log_prior_z = self.log_prob_z_given_l(log_prob_z, self.lengths[i])
         log_post_pred = self.components.log_post_pred(i)
         # print('embedding %d log_post_pred: ' % i + str(log_post_pred))
         log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
-        # print('embedding %d log_post_pred_active: ' % i + str(log_post_pred_active))
+        # print('In HFBGMM log_marg_i, embedding %d log_post_pred_active: ' % i + str(log_post_pred_active.shape))
 
-        # (24.23) in Murphy, p. 842
-        log_prob_z[:-1] += log_post_pred_active 
-        log_prob_z[-1] += self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active) 
-        log_post_pred_inactive = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active)  
-        return _cython_utils.logsumexp(log_prob_z)
+        log_likelihood_z = np.nan * np.ones(log_prior_z.shape)
+        log_likelihood_z[:-1] = log_post_pred_active 
+        log_likelihood_z[-1] = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active) 
+        # log_post_pred_inactive = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active)  
+        # print('In HFBGMM log_marg_i, embedding %d log_post_pred_inactive: ' % i + str(log_post_pred_inactive)) 
+        return _cython_utils.logsumexp(log_prior_z + log_likelihood_z - _cython_utils.logsumexp(log_likelihood_z))
     
     def log_prob_z_given_l(self, log_prob_z, l):
         """ 
@@ -519,8 +521,7 @@ class HierarchicalFBGMM(object):
 
         word = []
         for l in range(L):
-          prob_z = np.exp(log_prob_z[l] - logsumexp(log_prob_z[l]))
-
+          prob_z = np.exp(log_prob_z[l] - logsumexp(log_prob_z[l])) 
           # Take the MAP assignment for `X[i]`
           m = np.argmax(prob_z)
 
