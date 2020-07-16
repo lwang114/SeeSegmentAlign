@@ -496,7 +496,10 @@ class UnigramAcousticWordseg(object):
                 continue
             # print('self.acoustic_model.log_marg_i(embed_id, scale=False): ', self.acoustic_model.log_marg_i(embed_id, scale=False))
             # print('self.acoustic_model.log_marg_i(embed_id, scale=True): ', self.acoustic_model.log_marg_i(embed_id, scale=True))
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, scale=False)
+            scale = False
+            if self.acoustic_model.components.D >= 200:
+              scale = True
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, scale=scale)
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):

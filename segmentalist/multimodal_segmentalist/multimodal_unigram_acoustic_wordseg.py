@@ -544,7 +544,10 @@ class MultimodalUnigramAcousticWordseg(object):
             if embed_id == -1:
                 continue
             # print('log_prob_z inside get_vec_embed: ', log_prob_z)
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=deepcopy(log_prob_z), scale=True) 
+            scale = False
+            if self.acoustic_model.components.D >= 200:
+              scale = True
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=deepcopy(log_prob_z), scale=scale) 
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
