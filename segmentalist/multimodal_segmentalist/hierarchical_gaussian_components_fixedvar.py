@@ -9,8 +9,8 @@ import math
 import numpy as np
 from scipy.special import logsumexp
 import scipy.signal as signal
+from copy import deepcopy
 logger = logging.getLogger(__name__)
-
 import _cython_utils
 
 EPS = 1e-100
@@ -217,8 +217,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
           assert self.K == len(self.idx_to_word)
         
         Xr = self.inv_embed(i)
-        if len(k) == 1: # XXX
-          for l, m in enumerate(k): # Update component stats
+        # if len(k) == 1: # XXX
+        for l, m in enumerate(k): # Update component stats
             self.mu_N_numerators[m, :] += self.precision*Xr[l]
             self.precision_Ns[m, :] += self.precision
             self.phone_counts[m] += 1
@@ -248,8 +248,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
             self.assignments[i] = -1
        
             Xr = self.inv_embed(i)
-            if len(word.split(',')) == 1: # XXX
-              for l, m in enumerate(word.split(',')):
+            # if len(word.split(',')) == 1: # XXX
+            for l, m in enumerate(word.split(',')):
                 if not m in self.phone_to_idx: # Only do something if the phone component has not been deleted
                   continue
                 m_idx = self.phone_to_idx[m]

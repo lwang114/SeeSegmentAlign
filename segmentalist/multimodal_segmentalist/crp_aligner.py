@@ -258,6 +258,13 @@ class CRPAligner(object):
     log_prob_f_given_y_i[NEWWORD] = np.log(np.maximum(1 - p_active, EPS)) # TODO Check this 
     return log_prob_f_given_y_i 
 
+  def update_log_prob_f_given_y(self, log_prob_f_given_y, trg_word):
+    if not trg_word in log_prob_f_given_y:
+      p_init_tw = self.p_init(trg_word)
+      log_prob_f_given_y[trg_word] = np.log(p_init_tw)
+      log_prob_f_given_y[NEWWORD] = np.log(np.maximum(np.exp(log_prob_f_given_y[NEWWORD])-p_init_tw, EPS))
+    return log_prob_f_given_y
+
   def gibbs_sample(self, n_iter=20):
     order = list(range(len(self.src_sents)))
     for epoch in range(n_iter):

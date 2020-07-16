@@ -278,7 +278,6 @@ class HierarchicalFBGMM(object):
             - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha)
             )
 
-
         log_prior_z = self.log_prob_z_given_l(log_prob_z, self.lengths[i])
         log_post_pred = self.components.log_post_pred(i)
         # print('embedding %d log_post_pred: ' % i + str(log_post_pred))
@@ -302,7 +301,9 @@ class HierarchicalFBGMM(object):
         log_prior_z = np.log(max(prior_z, EPS)) 
         log_prob_z = log_prob_z[active_indices] # Select a subset of components allowed by the landmark length constraint
         return np.append(log_prob_z, log_prior_z)
-
+    
+    # TODO
+    '''
     def gibbs_sample(self, n_iter, consider_unassigned=True,
             anneal_schedule=None, anneal_start_temp_inv=0.1,
             anneal_end_temp_inv=1, n_anneal_steps=-1, log_prob_zs=[]): #, lms=1.0):
@@ -445,9 +446,8 @@ class HierarchicalFBGMM(object):
             logger.info(info)
 
         return record_dict
-
-    # TODO
     '''
+
     def gibbs_sample_inside_loop_i(self, i, anneal_temp=1, log_prob_z=[]): #, lms=1.):
         """
         Perform the inside loop of Gibbs sampling for data vector `i`.
@@ -459,7 +459,7 @@ class HierarchicalFBGMM(object):
         a call to this function is because this won't allow for caching the old
         component stats.
         """
-
+        L = self.lengths[i]
         if not len(log_prob_z):
           # Compute log probability of `X[i]` belonging to each component
           # (24.26) in Murphy, p. 843
@@ -468,33 +468,40 @@ class HierarchicalFBGMM(object):
                 float(self.alpha)/self.components.K_max + self.components.counts
                 )
             )
-
-        # (24.23) in Murphy, p. 842
-        log_prob_z[:self.components.K] += self.components.log_post_pred(i)
-        # Empty (unactive) components
-        log_prob_z[self.components.K:] += self.components.log_prior(i)
+        
+        log_prob_z = self.log_prob_z_given_l(log_prob_z, L)
+        log_post_pred = self.components.log_post_pred(i)
+        log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
+        log_likelihood_z = np.nan * np.ones(log_prob_z.shape)
+        log_likelihood_z[:-1] = log_post_pred_active 
+        log_likelihood_z[-1] = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active) 
+        log_prob_z += log_likelihood_z - logsumexp(log_likelihood_z)
         if anneal_temp != 1:
             log_prob_z = log_prob_z - logsumexp(log_prob_z)
             log_prob_z_anneal = 1./anneal_temp * log_prob_z - logsumexp(1./anneal_temp * log_prob_z)
-            # print('sorted log prob z top 10: ', sorted(log_prob_z_anneal, reverse=True)[:10])
-
             prob_z = np.exp(log_prob_z_anneal)
-            # print('sorted prob z top 10: ', sorted(prob_z, reverse=True)[:10])
         else:
             prob_z = np.exp(log_prob_z - logsumexp(log_prob_z))
-        # prob_z = np.exp(log_prob_z - logsumexp(log_prob_z))
+ 
         assert not np.isnan(np.sum(prob_z))
 
-        # Sample the new component assignment for `X[i]`
         k = utils.draw(prob_z)
+        w_indices = []
+        if k != len(prob_z) - 1: # If using existing components, sample under CRP prior the new component assignment for `X[i]`
+          active_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))==L]
+          w = active_words[k]
+          w_indices = [self.components.phone_to_idx[m] for m in w.split(',')]
+        else: # Otherwise, creating a potentially new component by sampling under uniform prior
+          for l in range(L):
+            prob_z = np.exp(log_post_pred[l] - logsumexp(log_post_pred[l])) 
+            # Take the MAP assignment for `X[i]`
+            m = utils.draw(prob_z)
 
-        # There could be several empty, unactive components at the end
-        if k > self.components.K:
-            k = self.components.K
-
-        logger.debug("Adding item " + str(i) + " to acoustic model component " + str(k))
-        self.components.add_item(i, k)
-    '''
+            # There could be several empty, unactive components at the end
+            if m > self.components.M:
+                m = self.components.M
+            w_indices.append(m)
+        self.components.add_item(i, w_indices)
 
     def map_assign_i(self, i, log_prob_z=[]):
         """

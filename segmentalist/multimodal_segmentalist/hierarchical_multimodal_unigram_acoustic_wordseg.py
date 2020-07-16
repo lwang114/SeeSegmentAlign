@@ -283,7 +283,6 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         
         # Generate unsupervised transcripts as target sentences to the aligner
         a_sents = [self.get_unsup_transcript_i(i_utt) for i_utt in range(self.utterances.D)]
-        print('In HM init, a_sents[:10]: ' + str(a_sents[:10]))
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
         self.alignment_model.setup_restaurants()
@@ -323,7 +322,6 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             self.acoustic_model.components.del_item(i_embed)
         self.alignment_model.del_item(i) 
         log_prob_z_dict = self.alignment_model.log_prob_f_given_y_i(i)
-
         word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
         log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
         log_prob_z.append(log_prob_z_dict[NEWWORD])
@@ -393,28 +391,32 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             # npt.assert_almost_equal(np.sum(log_margs*np.array(lengths)), log_prob)
 
         # Assign new embeddings to components in `acoustic_model` 
-        for i_embed in self.utterances.get_segmented_embeds_i(i):
+        for i_w, i_embed in enumerate(self.utterances.get_segmented_embeds_i(i)):
             if i_embed == -1:
                 # This only happens because of backtracking in the forward-backward functions
                 continue  # don't assign a non-embedding (accidently the last embedding)
             if self.fb_type == "standard":
-                # TODO Use Gibbs sampling to find assignments
-                # if anneal_gibbs_am:
-                #     # log_prob_z = self.alignment_model.log_prob_f_given_y_i(i)        
-                #     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp, log_prob_z=deepcopy(log_prob_z))
-                # else:
-                #     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
-                self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
-                print('In HM gibbs sample, assignment[%d]: ' % i_embed + str(self.acoustic_model.components.assignments[i_embed]))
+                if anneal_gibbs_am:
+                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp, log_prob_z=deepcopy(log_prob_z))
+                else:
+                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
+                k = self.acoustic_model.components.assignments[i_embed]
+                tw = self.acoustic_model.components.idx_to_word[k]
+                word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
+                log_prob_z_dict = self.alignment_model.update_log_prob_f_given_y(log_prob_z_dict, tw)
+                log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
+                log_prob_z.append(log_prob_z_dict[NEWWORD])
+                log_prob_z = np.asarray(log_prob_z)
+                # self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
+                # print('In HM gibbs sample, assignment[%d], word: ' % i_embed + str(self.acoustic_model.components.assignments[i_embed]) + ' ' + str(self.acoustic_model.components.idx_to_word[self.acoustic_model.components.assignments[i_embed]]))
                 
             elif self.fb_type == "viterbi":
                 self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z)) 
-
-        # Update alignment parameters
-        src_sent = np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i]])
-        trg_sent = np.asarray(self.get_unsup_transcript_i(i))
-        print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
-        self.alignment_model.add_item(i, src_sent, trg_sent)
+        
+        # Update alignment parameters 
+        trg_sent = np.asarray(self.get_unsup_transcript_i(i))       
+        # print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
+        self.alignment_model.add_item(i, self.alignment_model.src_sents[i], trg_sent)
 
         # Debug trace
         if i == i_debug_monitor:
@@ -500,20 +502,20 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         for i_iter in xrange(n_iter):
             print('Iteration %d' % i_iter)
             start_time = time.time()
-
-            log_prob_zs = []
             word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx)
-            for i_utt in range(self.utterances.D):
-                log_prob_z_dict = self.alignment_model.log_prob_f_given_y_i(i_utt)
-                log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
-                log_prob_z.append(log_prob_z_dict[NEWWORD])
-                log_prob_z = np.asarray(log_prob_z)
-
-                n_embeds = len(self.utterances.get_segmented_embeds_i(i_utt))
-                log_prob_zs.append(np.tile(log_prob_z, (n_embeds, 1)))
-
+            print('Number of word components: %d' % len(word_to_idx))
             # Perform intermediate acoustic model re-sampling
             if am_n_iter > 0:
+                log_prob_zs = []
+                for i_utt in range(self.utterances.D):
+                    log_prob_z_dict = self.alignment_model.log_prob_f_given_y_i(i_utt)
+                    log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
+                    log_prob_z.append(log_prob_z_dict[NEWWORD])
+                    log_prob_z = np.asarray(log_prob_z)
+
+                    n_embeds = len(self.utterances.get_segmented_embeds_i(i_utt))
+                    log_prob_zs.append(np.tile(log_prob_z, (n_embeds, 1)))
+
                 self.acoustic_model.gibbs_sample(
                       am_n_iter, consider_unassigned=False,
                       log_prob_zs=deepcopy(log_prob_zs)
@@ -529,7 +531,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 utt_order = [i_debug_monitor]
             log_prob = 0
             for i_utt in utt_order:
-              log_prob += self.gibbs_sample_i(i_utt, anneal_temp, anneal_gibbs_am)
+                log_prob += self.gibbs_sample_i(i_utt, anneal_temp, anneal_gibbs_am)
 
             # Update visual model parameters
             # self.visual_model.reset()
