@@ -28,44 +28,67 @@ DEBUG = False
 NULL = "NULL"
 
 def embed(y, n, args):
-  if y.shape[1] < n:
-    if DEBUG:
-      print("y.shape: ", y.shape)
-    args.technique = "resample"
+  if y.shape[1] < n and args.technique != 'mean' and args.technique != 'rasanen': 
+      args.technique = "resample"
 
-  if args.feat_type in ['mfcc', 'mbn', 'kamper']:
-    y = y[:, :args.mfcc_dim]
-    # Downsample
-    if args.technique == "interpolate":
-        x = np.arange(y.shape[1])
-        f = interpolate.interp1d(x, y, kind="linear")
-        x_new = np.linspace(0, y.shape[1] - 1, n)
-        y_new = f(x_new).flatten(flatten_order) #.flatten("F")
-    elif args.technique == "resample": 
-        y_new = signal.resample(y.astype("float32"), n, axis=1).flatten(flatten_order) #.flatten("F")
-    elif args.technique == "rasanen":
-        # Taken from Rasenen et al., Interspeech, 2015
-        d_frame = y.shape[0]
+  if y.shape[1] == 0:
+      return np.zeros((args.embed_dim,)) 
+
+  y = y[:args.mfcc_dim, :]
+  # Downsample
+  if args.technique == "interpolate":
+      x = np.arange(y.shape[1])
+      f = interpolate.interp1d(x, y, kind="linear")
+      x_new = np.linspace(0, y.shape[1] - 1, n)
+      y_new = f(x_new).T.flatten(flatten_order) #.flatten("F")
+  elif args.technique == "resample": 
+      y_new = signal.resample(y.astype("float32"), n, axis=1).T.flatten(flatten_order) #.flatten("F")
+  elif args.technique == "rasanen": 
+      # Taken from Rasenen et al., Interspeech, 2015
+      d_frame = y.shape[0]
+      if y.shape[1] >= n:
         n_frames_in_multiple = int(np.floor(y.shape[1] / n)) * n
-        y_new = np.mean(
+        n_frames_in_multiple_max = (int(np.floor(y.shape[1] / n)) + 1) * n
+        if abs(y.shape[1] - n_frames_in_multiple) > abs(y.shape[1] - n_frames_in_multiple_max):
+          n_frames_in_multiple = n_frames_in_multiple_max 
+          y_new = np.concatenate(
+                [y, np.tile(y[:, -1, np.newaxis], (1, n_frames_in_multiple - y.shape[1]))], axis=1
+                )
+          y_new = np.mean(y_new.reshape((d_frame, n, -1)), axis=-1).T.flatten(flatten_order)
+        else:
+          y_new = np.mean(
             y[:, :n_frames_in_multiple].reshape((d_frame, n, -1)), axis=-1
-            ).flatten(flatten_order) #.flatten("F")
-  elif args.feat_type == 'ctc' or args.feat_type == 'transformer':
-      if y.shape[1] == 0:
-        return np.zeros((args.embed_dim,)) 
+            ).T.flatten(flatten_order) #.flatten("F")
+      else:
+          n_min = int(np.floor(n / y.shape[1])) 
+          n_max = n_min + 1
+          if abs(n_max * y.shape[1] - n) >= abs(n_min * y.shape[1] - n):
+              n_per_frame = n_min
+          else:
+              n_per_frame = n_max
+            
+          y_new = np.tile(y[:, :, np.newaxis], (1, 1, n_per_frame)).reshape(d_frame, -1)
+          if y_new.shape[1] > n:
+              y_new = y_new[:, :n]
+          elif y_new.shape[1] < n:
+              y_new = np.concatenate(
+                [y_new, np.tile(y_new[:, -1, np.newaxis], (1, n - y_new.shape[1]))], axis=1
+                )
+          y_new = y_new.T.flatten(flatten_order)
+  elif args.technique == 'mean':
       y_new = np.mean(y, axis=1)
   return y_new
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--embed_dim", type=int, default=140, help="Dimension of the embedding vector")
 parser.add_argument("--n_slices_min", type=int, default=2, help="Minimum slices between landmarks per segments")
 parser.add_argument("--n_slices_max", type=int, default=11, help="Maximum slices between landmarks per segments")
 parser.add_argument("--min_duration", type=int, default=0, help="Minimum slices of a segment")
-parser.add_argument("--technique", choices={"resample", "interpolate", "rasanen"}, default="resample", help="Embedding technique")
+parser.add_argument("--technique", choices={"resample", "interpolate", "rasanen", "mean"}, default="resample", help="Embedding technique")
 parser.add_argument("--am_class", choices={"fbgmm"}, default='fbgmm', help="Class of acoustic model")
 parser.add_argument("--am_K", type=int, default=65, help="Number of clusters")
 parser.add_argument("--exp_dir", type=str, default='./', help="Experimental directory")
-parser.add_argument("--feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer'}, help="Acoustic feature type")
+parser.add_argument("--feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'synthetic'}, help="Acoustic feature type")
 parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC/delta feature")
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
@@ -78,30 +101,13 @@ print(args)
 if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
 
-if args.dataset == 'flickr':
-  args.use_null = True
-  args.landmarks_file = "../data/flickr30k/audio_level/flickr_landmarks_combined.npz"
-  if args.feat_type == "bn":
-    datapath = "../data/flickr30k/audio_level/flickr_bnf_all_src.npz"
-  elif args.feat_type == "mfcc":
-    datapath = "../data/flickr30k/audio_level/flickr_mfcc_cmvn_htk.npz"
-  else:
-    raise ValueError("Please specify the feature type")
+if args.dataset == 'mscoco2k':
+  datasetpath = 'data/'  
 
-  image_concept_file = "../data/flickr30k/audio_level/flickr_bnf_all_trg.txt"
-  concept2idx_file = "../data/flickr30k/concept2idx.json"
-  pred_boundary_file = "%spred_boundaries.npy" % args.exp_dir
-  pred_landmark_segmentation_file = "%sflickr30k_pred_landmark_segmentation.npy" % args.exp_dir
-  pred_segmentation_file = "%sflickr30k_pred_segmentation.npy" % args.exp_dir
-  gold_segmentation_file = "../data/flickr30k/audio_level/flickr30k_gold_segmentation.json"
-  pred_alignment_file = "%sflickr30k_pred_alignment.json" % args.exp_dir
-  gold_alignment_file = "../data/flickr30k/audio_level/flickr30k_gold_alignment.json"
-elif args.dataset == 'mscoco2k':
-  datasetpath = 'data/'
-  datapath = datasetpath + 'mscoco2k_%s.npz' % args.feat_type
-  # datapath = '../data/mscoco/mscoco2k_kamper_embeddings.npz' 
-  image_concept_file = datasetpath + 'mscoco2k_image_captions.txt'
-  concept2idx_file = datasetpath + 'concept2idx.json'
+  if args.feat_type == 'synthetic':
+    args.feat_type = 'audio_gaussian_vectors'
+  datapath = datasetpath + 'mscoco2k_%s_unsegmented.npz' % args.feat_type 
+  
   pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
   pred_segmentation_file = os.path.join(args.exp_dir, "mscoco2k_pred_segmentation.npy")
   pred_landmark_segmentation_file = "%smscoco2k_pred_landmark_segmentation.npy" % args.exp_dir
@@ -123,30 +129,17 @@ elif args.dataset == 'mscoco20k':
 
 downsample_rate = 1
 if args.feat_type == 'ctc':
-  args.embed_dim = 200
   args.mfcc_dim = 200 # XXX Hack to get embed() working
 elif args.feat_type == 'transformer':
-  args.embed_dim = 256
   args.mfcc_dim = 256
   downsample_rate = 4
 
-start_step = 1 
+start_step = 0 
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
-
   # Generate acoustic embeddings, vec_ids_dict and durations_dict 
-  audio_feats = np.load(datapath)
-  f = open(image_concept_file, "r")
-  image_concepts = []
-  for line in f:
-    image_concepts.append(line.strip().split())
-  f.close()
-
-  with open(concept2idx_file, "r") as f:
-    concept2idx = json.load(f)
-  print(len(list(audio_feats.keys())))
-
+  audio_feats = np.load(datapath) 
   embedding_mats = {}
   concept_ids = []
   vec_ids_dict = {}
@@ -155,34 +148,35 @@ if start_step == 0:
   if args.landmarks_file: 
     landmarks_dict = np.load(args.landmarks_file)
     landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
+    if landmarks_dict[landmark_ids[0]][0] > 0: # If the landmarks do not start with frame 0, append 0 to the landmarks
+      landmarks_dict = {i_lm: np.append([0], landmarks_dict[i_lm]) for i_lm in landmark_ids}
   else:
     landmark_ids = []
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    # if i_ex > 10:
+    # if i_ex > 29:
     #   break
-    feat_mat = audio_feats[feat_id]
-    if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and args.feat_type in ['mfcc', 'mbn', 'kamper']:
+    feat_mat = audio_feats[feat_id] 
+    if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and datapath.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
 
-    if feat_mat.shape[0] > 1000:
-      feat_mat = feat_mat[:1000, :args.mfcc_dim]
+    if feat_mat.shape[0] > 2000:
+      feat_mat = feat_mat[:2000, :args.mfcc_dim]
     else:
       feat_mat = feat_mat[:, :args.mfcc_dim]
+    
+    feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
 
     if not args.landmarks_file:
       n_slices = feat_mat.shape[0]
       landmarks_dict[feat_id] = np.arange(n_slices)
       landmark_ids.append(feat_id)
     else:   
-      n_slices = len(landmarks_dict[landmark_ids[i_ex]]) - 1 
-    # print('n_slices: ', n_slices)
+      n_slices = len(landmarks_dict[landmark_ids[i_ex]]) - 1   
     feat_dim = args.mfcc_dim 
     assert args.embed_dim % feat_dim == 0   
     embed_mat = np.zeros(((args.n_slices_max - max(args.n_slices_min, 1) + 1)*n_slices, args.embed_dim))
-    if args.am_class.split("-")[0] == "multimodal":
-      concept_ids_i = [[] for _ in range((args.n_slices_max - max(args.n_slices_min, 1) + 1)*n_slices)] 
     vec_ids = -1 * np.ones((n_slices * (1 + n_slices) / 2,))
     durations = np.nan * np.ones((n_slices * (1 + n_slices) / 2,))
 
@@ -196,14 +190,8 @@ if start_step == 0:
             i = t*(t - 1)/2
             vec_ids[i + cur_start] = i_embed
             n_down_slices = args.embed_dim / feat_dim
-            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate)
-            # if start_frame >= end_frame:
-            # print('i_ex, start_frame, end_frame: ', i_ex, start_frame, end_frame)
-            # print('feat_mat[start_frame:end_frame].shape: ', feat_mat[start_frame:end_frame+1].shape)
-            embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args) 
-            if args.am_class.split("-")[0] == "multimodal":
-              concept_ids_i[i_embed] = [concept2idx[NULL]] + [concept2idx[c] for c in image_concepts[i_ex]]
-           
+            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate) 
+            embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
 
@@ -217,22 +205,9 @@ if start_step == 0:
   np.savez(args.exp_dir+"landmarks_dict.npz", **landmarks_dict)  
       
   print("Take %0.5f s to finish extracting embedding vectors !" % (time.time()-begin_time))
-  if args.am_class.split("-")[0] == "multimodal":
-    with open(args.exp_dir+"image_concepts.json", "w") as f:
-      json.dump(concept_ids, f, indent=4, sort_keys=True)
-    
-    with open(args.exp_dir+"concept_names.json", "w") as f:
-      concept_names = [c for c, i in sorted(concept2idx.items(), key=lambda x:x[1])]
-      json.dump(concept_names, f, indent=4, sort_keys=True)
 
 if start_step <= 1:
-  begin_time = time.time()
-  if args.am_class.split("-")[0] == "multimodal":
-    with open(args.exp_dir+"image_concepts.json", "r") as f:
-      concepts = json.load(f) 
-    with open(args.exp_dir+"concept_names.json", "r") as f:
-      concept_names = json.load(f)
-        
+  begin_time = time.time()       
   embedding_mats = np.load(args.exp_dir+'embedding_mats.npz')
   vec_ids_dict = np.load(args.exp_dir+'vec_ids_dict.npz')
   durations_dict = np.load(args.exp_dir+"durations_dict.npz")
@@ -246,7 +221,7 @@ if start_step <= 1:
     np.savez(args.exp_dir+"new_landmarks_dict.npz", **new_landmarks_dict)
     landmarks_dict = np.load(args.exp_dir+"new_landmarks_dict.npz") 
 
-# Load seed boundaries and seed assignments
+  # Load seed boundaries and seed assignments
   seed_boundaries_dict = None
   if args.seed_boundaries_file:
     seed_boundaries_dict = np.load(args.seed_boundaries_file)
@@ -264,9 +239,9 @@ if start_step <= 1:
     am_alpha = 10.
     am_K = args.am_K
     m_0 = np.zeros(D)
-    k_0 = 0.05
-    # S_0 = 0.025*np.ones(D)
-    S_0 = 0.002*np.ones(D)
+    k_0 = 0.2 # 0.05
+    S_0 = 0.2*np.ones(D)
+    # S_0 = 0.002*np.ones(D)
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
     segmenter = UnigramAcousticWordseg(
       am_class, am_alpha, am_K, am_param_prior, embedding_mats, vec_ids_dict, 
@@ -280,7 +255,7 @@ if start_step <= 1:
 
   # Perform sampling
   if args.am_class.split("-")[-1] == "fbgmm":
-    record = segmenter.gibbs_sample(300, 3, anneal_schedule="linear", anneal_gibbs_am=True)
+    record = segmenter.gibbs_sample(100, 3, anneal_schedule="linear", anneal_gibbs_am=True)
     #sum_neg_len_sqrd_norm = record["sum_neg_len_sqrd_norm"] 
   else:
     record = segmenter.segment(1, 3)

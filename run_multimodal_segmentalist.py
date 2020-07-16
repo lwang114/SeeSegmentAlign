@@ -11,7 +11,7 @@ from segmentalist.multimodal_segmentalist.hierarchical_multimodal_unigram_acoust
 import segmentalist.multimodal_segmentalist.hfbgmm as hfbgmm
 import segmentalist.multimodal_segmentalist.crp_aligner as crp_aligner
 import segmentalist.multimodal_segmentalist.hierarchical_gaussian_components_fixedvar as hierarchical_gaussian_components_fixedvar
-from segmentalist.multimodal_segmentalist.mixture_multimodal_unigram_acoustic_wordseg import *
+# from segmentalist.multimodal_segmentalist.mixture_multimodal_unigram_acoustic_wordseg import *
 
 from scipy import signal
 import argparse
@@ -71,8 +71,8 @@ def embed(y, n, args):
             
           y_new = np.tile(y[:, :, np.newaxis], (1, 1, n_per_frame)).reshape(d_frame, -1)
           if y_new.shape[1] > n:
-              y_new = y_new[:n]
-          if y_new.shape[1] < n:
+              y_new = y_new[:, :n].T.flatten(flatten_order)
+          elif y_new.shape[1] < n:
               y_new = np.concatenate(
                 [y_new, np.tile(y_new[:, -1, np.newaxis], (1, n - y_new.shape[1]))], axis=1
                 ).T.flatten(flatten_order)
@@ -99,7 +99,7 @@ parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
 parser.add_argument('--use_null', action='store_true')
-parser.add_argument('--n_iter', type=int, default=300, help='Number of Gibbs sampling iterations')
+parser.add_argument('--n_iter', type=int, default=100, help='Number of Gibbs sampling iterations')
 parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Initial boundary probability')
 parser.add_argument('--time_power_term', type=float, default=1., help='Scaling of the per-frame scaling')
 parser.add_argument('--am_alpha', type=float, default=1., help='Concentration parameter')
@@ -152,7 +152,7 @@ elif args.audio_feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-start_step = 2
+start_step = 0
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
@@ -174,8 +174,8 @@ if start_step == 0:
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    if i_ex > 29:
-      break
+    # if i_ex > 29:
+    #   break
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -184,9 +184,8 @@ if start_step == 0:
       feat_mat = feat_mat[:2000, :args.mfcc_dim]
     else:
       feat_mat = feat_mat[:, :args.mfcc_dim]
-
-    # print('np.mean(feat), np.std(feat): ', np.mean(feat_mat), np.std(feat_mat))
-    # feat_mat = (feat_mat - np.mean(feat_mat)) / np.maximum(np.std(feat_mat), EPS)
+    
+    feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
 
     if not args.landmarks_file:
       n_slices = feat_mat.shape[0]
@@ -219,7 +218,7 @@ if start_step == 0:
     embedding_mats[landmark_ids[i_ex]] = embed_mat
     durations_dict[landmark_ids[i_ex]] = durations 
 
-  np.savez(args.exp_dir+"acoustic_embedding_mats.npz", **embedding_mats)
+  np.savez(args.exp_dir+"embedding_mats.npz", **embedding_mats)
   np.savez(args.exp_dir+"a_vec_ids_dict.npz", **vec_ids_dict)
   np.savez(args.exp_dir+"durations_dict.npz", **durations_dict)
   np.savez(args.exp_dir+"landmarks_dict.npz", **landmarks_dict)  
@@ -238,7 +237,7 @@ if start_step <= 1:
 
 if start_step <= 2:
   begin_time = time.time()
-  a_embedding_mats = np.load(args.exp_dir+'acoustic_embedding_mats.npz')
+  a_embedding_mats = np.load(args.exp_dir+'embedding_mats.npz')
   v_embedding_mats = np.load(image_feature_file)
   a_vec_ids_dict = np.load(args.exp_dir+'a_vec_ids_dict.npz')
   v_vec_ids_dict = np.load(args.exp_dir+'v_vec_ids_dict.npz')

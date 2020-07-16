@@ -241,8 +241,8 @@ class UnigramAcousticWordseg(object):
         # Generate unsupervised transcripts as target sentences to the aligner
         a_sents = [np.asarray(self.get_unsup_transcript_i(i_utt)) for i_utt in range(self.utterances.D)]
         boundaries = [np.nonzero(self.utterances.boundaries[i_utt])[0] for i_utt in range(self.utterances.D)]
-        print('boundaries[:10]: ', boundaries[:10])
-        print('a_sents[:10]', a_sents[:10]) # XXX
+        # print('boundaries[:10]: ', boundaries[:10])
+        # print('a_sents[:10]', a_sents[:10]) # XXX
 
 
 
@@ -366,8 +366,8 @@ class UnigramAcousticWordseg(object):
         # print str(self.get_unsup_transcript_i(i))
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))
         boundaries = np.nonzero(self.utterances.boundaries[i])[0]
-        print('boundaries[:10]: ', boundaries[:10])
-        print('example, trg_sent[:10]', i, trg_sent[:10]) # XXX
+        # print('boundaries[:10]: ', boundaries[:10])
+        # print('example, trg_sent[:10]', i, trg_sent[:10]) # XXX
 
         return log_prob
 
@@ -445,7 +445,7 @@ class UnigramAcousticWordseg(object):
 
         # Loop over sampling iterations
         for i_iter in xrange(n_iter):
-
+            print('Iteration %d' % i_iter)
             start_time = time.time()
 
             # Perform intermediate acoustic model re-sampling
@@ -494,14 +494,18 @@ class UnigramAcousticWordseg(object):
         for i, embed_id in enumerate(vec_ids):
             if embed_id == -1:
                 continue
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, scale=True)
+            # print('self.acoustic_model.log_marg_i(embed_id, scale=False): ', self.acoustic_model.log_marg_i(embed_id, scale=False))
+            # print('self.acoustic_model.log_marg_i(embed_id, scale=True): ', self.acoustic_model.log_marg_i(embed_id, scale=True))
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, scale=False)
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else:
                 m_poisson = 1.
-                vec_embed_log_probs[i] *= int(durations[i]) * np.log(m_poisson) - math.lgamma(int(durations[i]) + 1) - m_poisson # Poisson length distribution # XXX durations[i]**self.time_power_term
+                vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution # XXX durations[i]**self.time_power_term
+                # print('int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson: ', int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson)
+                # print('vec_embed_log_probs[i]: ', vec_embed_log_probs[i])
 
         # # Scale log marginals by number of frames
         # N = int(-1 + np.sqrt(1 + 4 * 2 * len(vec_ids))) / 2  # see `__init__`
@@ -611,8 +615,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        if i_utt > 29:
-          break
+        # if i_utt > 29:
+        #   break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 
@@ -737,11 +741,11 @@ def forward_backward(vec_embed_log_probs, log_p_continue, N, n_slices_min=0,
                 )
             # Look for first point where we can actually sample and insert a boundary at this point
             while np.all(log_p_k == -np.inf):
-                t = t - 1
+                t = t - 1 
                 if t == 0:
                     break  # this is a very crappy utterance
                 i = int(0.5*(t - 1)*t)
-                log_p_k = (vec_embed_log_probs[i:i + t][-n_slices_max:] + log_alphas[:t][-n_slices_max:])
+                log_p_k = (vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut] + log_alphas[:t][-n_slices_max:n_slices_min_cut])
             logger.debug("Backtracked to cut " + str(t))
             boundaries[t - 1] = True  # insert the boundary
         if anneal_temp != 1:
@@ -760,6 +764,7 @@ def forward_backward(vec_embed_log_probs, log_p_continue, N, n_slices_min=0,
             logger.debug("P(k): " + str(p_k))
             logger.debug("k sampled from P(k): " + str(k))
             logger.debug("Embedding log prob: " + str(vec_embed_log_probs[i + t - k]))
+        
         log_prob += vec_embed_log_probs[i + t - k]
         if t - k - 1 < 0:
             break
