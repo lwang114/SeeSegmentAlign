@@ -408,9 +408,10 @@ def convert_boundary_to_segmentation(binary_boundary_file, frame_boundary_file):
   for i, b_vec in enumerate(binary_boundaries):
     # print("segmentation %d" % i)
     end_frames = np.nonzero(b_vec)[0]
-    frame_boundary = [[0, end_frames[0]]]
+    end_frames = np.insert(end_frames, 0, 0)
+    frame_boundary = []
     for st, end in zip(end_frames[:-1], end_frames[1:]):
-      frame_boundary.append([st, end+1])
+      frame_boundary.append([st, end])
     
     # if i < 5: 
     #   print("end_frames: ", end_frames)
@@ -422,21 +423,22 @@ def convert_boundary_to_segmentation(binary_boundary_file, frame_boundary_file):
 def convert_landmark_segment_to_10ms_segmentation(landmark_segment_file, landmarks_file, frame_segment_file):
   lm_segments = np.load(landmark_segment_file)
   
-  lms = np.load(landmarks_file)
-  utt_ids = sorted(lms.keys(), key=lambda x:int(x.split('_')[-1]))
+  lm2frame = np.load(landmarks_file)
+  utt_ids = sorted(lm2frame.keys(), key=lambda x:int(x.split('_')[-1]))
   frame_segments = []
   for i, utt_id in enumerate(utt_ids):
     # print(i, utt_id)
     # print('lm_segment: ', lm_segments[i])
-    # print('lms: ', lms['arr_'+str(i)])
-    # print('len(lm_segment), len(lms): ', len(lm_segments[i]), len(lms['arr_'+str(i)]))
-    lm_segment = lm_segments[i]
-    lm = np.insert(lms, 0, 0)
-    f_seg = []
-    for lm_seg in lm_segment:  
-      lm = np.insert(lms[utt_id], 0, 0)
-      f_seg.append(lm[lm_seg])
-    frame_segments.append(np.asarray(f_seg))
+    # print('lm2frame: ', lm2frame['arr_'+str(i)])
+    # print('len(lm_segment), len(lm2frame): ', len(lm_segments[i]), len(lm2frame['arr_'+str(i)]))
+
+    cur_frame_segments = []
+    lm2frame_i = lm2frame[utt_id]
+    if lm2frame_i[0] != 0:
+      lm2frame_i = np.insert(lm2frame_i, 0, 0)
+    for cur_lm_segment in lm_segments[i]:  
+      cur_frame_segments.append(lm2frame_i[cur_lm_segment])
+    frame_segments.append(np.asarray(cur_frame_segments))
   np.save(frame_segment_file, frame_segments)
 
 def convert_10ms_segmentation_to_landmark(segmentation_file, ids_to_utterance_label_file, landmarks_file):
