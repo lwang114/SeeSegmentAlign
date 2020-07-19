@@ -552,8 +552,8 @@ class MultimodalUnigramAcousticWordseg(object):
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else: 
-                vec_embed_log_probs[i] *= durations[i]**self.time_power_term 
-                # vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution 
+                # vec_embed_log_probs[i] *= durations[i]**self.time_power_term 
+                vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution 
 
         # # Scale log marginals by number of frames
         # N = int(-1 + np.sqrt(1 + 4 * 2 * len(vec_ids))) / 2  # see `__init__`
