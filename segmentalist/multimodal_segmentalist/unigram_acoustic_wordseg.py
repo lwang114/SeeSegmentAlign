@@ -497,16 +497,19 @@ class UnigramAcousticWordseg(object):
             # print('self.acoustic_model.log_marg_i(embed_id, scale=False): ', self.acoustic_model.log_marg_i(embed_id, scale=False))
             # print('self.acoustic_model.log_marg_i(embed_id, scale=True): ', self.acoustic_model.log_marg_i(embed_id, scale=True))
             scale = False
-            if self.acoustic_model.components.D >= 200:
-              scale = True
+            # XXX
+            # if self.acoustic_model.components.D >= 200:
+            #   scale = True
             vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, scale=scale)
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else:
-                m_poisson = 1.
-                vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution # XXX durations[i]**self.time_power_term
+                # m_poisson = 1.
+                # XXX
+                # vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution
+                vec_embed_log_probs[i] *= durations[i]**self.time_power_term 
                 # print('int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson: ', int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson)
                 # print('vec_embed_log_probs[i]: ', vec_embed_log_probs[i])
 

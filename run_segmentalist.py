@@ -239,9 +239,9 @@ if start_step <= 1:
     am_alpha = 10.
     am_K = args.am_K
     m_0 = np.zeros(D)
-    k_0 = 0.2 # 0.05
-    S_0 = 0.2*np.ones(D)
-    # S_0 = 0.002*np.ones(D)
+    k_0 = 0.05
+    # S_0 = 0.2*np.ones(D)
+    S_0 = 0.002*np.ones(D)
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
     segmenter = UnigramAcousticWordseg(
       am_class, am_alpha, am_K, am_param_prior, embedding_mats, vec_ids_dict, 
@@ -288,6 +288,7 @@ if start_step <= 2:
 
 if start_step <= 3:
   # TODO Use get_unsup_transcript method to find the assignments 
+  audio_feats = np.load(datapath)
   lm_boundaries = np.load(pred_boundary_file)
   landmarks = np.load(args.landmarks_file)
   embeds_dict = np.load(args.exp_dir+"embedding_mats.npz")
@@ -303,7 +304,7 @@ if start_step <= 3:
     alignment = []
     embed_mat = embeds_dict[feat_id]
     vec_ids = vec_ids_dict[feat_id]
-    lm_segments = np.asarray([s+1 for s in np.nonzero(lm_boundaries[i_feat])[0].tolist()]) 
+    lm_segments = np.asarray([s for s in np.nonzero(lm_boundaries[i_feat])[0].tolist()]) 
     lm_segments = np.append([0], lm_segments)
     image_concepts = []
     align_idx = 0

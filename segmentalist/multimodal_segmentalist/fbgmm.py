@@ -275,6 +275,8 @@ class FBGMM(object):
           if len(log_prob_z_given_y):
             log_prob_z += log_prob_z_given_y
             log_prob_z -= logsumexp(log_prob_z)
+
+        # print('In fbgmm log_marg_i %d, prior: ' % (i) + str(np.min(log_prob_z)) + ' ' + str(np.max(log_prob_z)))
         # log_prob_z = lms * (
         #     np.ones(self.components.K_max)*(
         #         np.log(float(self.alpha)/self.components.K_max + self.components.counts)
@@ -293,6 +295,7 @@ class FBGMM(object):
           log_prob_z[:self.components.K] += self.components.log_post_pred(i)
           # Empty (unactive) components
           log_prob_z[self.components.K:] += self.components.log_prior(i)
+        # print('In fbgmm log_marg_i %d, posterior: ' % (i) + str(np.min(log_prob_z)) + ' ' + str(np.max(log_prob_z)))
         return _cython_utils.logsumexp(log_prob_z) 
  
     def gibbs_sample(self, n_iter, consider_unassigned=True,

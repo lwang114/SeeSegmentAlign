@@ -701,8 +701,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        if i_utt > 29:
-          break
+        # if i_utt > 29:
+        #   break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 

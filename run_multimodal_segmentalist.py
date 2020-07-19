@@ -122,7 +122,7 @@ if args.dataset == 'mscoco2k':
   if args.image_feat_type == 'res34':
     args.image_feat_type = 'res34_embed512dim'
   elif args.image_feat_type == 'synthetic':
-    args.image_feat_type = 'image_gaussian_vectors'
+    args.image_feat_type = 'concept_gaussian_vectors'
   image_feature_file = datasetpath + 'mscoco2k_%s.npz' % args.image_feat_type 
   concept2idx_file = datasetpath + 'concept2idx.json'
   
@@ -263,7 +263,7 @@ if start_step <= 2:
     am_alpha = args.am_alpha
     am_K = args.am_K
     m_0 = np.zeros(D)
-    k_0 = 0.2 #0.05
+    k_0 = 0.2
     S_0 = 0.2*np.ones(D) # 0.002*np.ones(D) 
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
   elif args.am_class == "hfbgmm":
@@ -311,7 +311,7 @@ if start_step <= 2:
         seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
         p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
         time_power_term=args.time_power_term,
-        init_am_assignments='rand',
+        init_am_assignments='one-by-one',
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         model_name=args.exp_dir+'mbes_gmm'
         ) # XXX init_am_assignments='one-by-one',

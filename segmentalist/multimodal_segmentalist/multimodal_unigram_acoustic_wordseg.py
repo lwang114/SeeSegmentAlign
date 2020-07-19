@@ -391,7 +391,7 @@ class MultimodalUnigramAcousticWordseg(object):
         # Update alignment parameters
         src_sent = np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i]])
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))
-        # XXX print('example, trg_sent[:10]', i, trg_sent[:10])
+        # print('example, trg_sent[:10]', i, trg_sent[:10])
         self.alignment_model.update_counts_i(i, src_sent, trg_sent)
 
         # Debug trace
@@ -543,17 +543,17 @@ class MultimodalUnigramAcousticWordseg(object):
         for i, embed_id in enumerate(vec_ids):
             if embed_id == -1:
                 continue
-            # print('log_prob_z inside get_vec_embed: ', log_prob_z)
             scale = False
             if self.acoustic_model.components.D >= 200:
-              scale = True
+              scale = True 
             vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, log_prob_z=deepcopy(log_prob_z), scale=scale) 
 
             # Scale log marginals by number of frames
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else: 
-                vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution # XXX *= durations[i]**self.time_power_term
+                vec_embed_log_probs[i] *= durations[i]**self.time_power_term 
+                # vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution 
 
         # # Scale log marginals by number of frames
         # N = int(-1 + np.sqrt(1 + 4 * 2 * len(vec_ids))) / 2  # see `__init__`
@@ -573,6 +573,7 @@ class MultimodalUnigramAcousticWordseg(object):
         #     #     vec_embed_log_probs[i_:i_ + t] += self.dur_scaling_factor*duration_prior_log
 
         #     i_ += t
+
         return vec_embed_log_probs + self.wip
 
     def calc_p_continue(self):
