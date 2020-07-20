@@ -88,16 +88,15 @@ class HierarchicalGaussianComponentsFixedVar(object):
 
     """
 
-    def __init__(self, X, prior, lengths, assignments=None, K_max=None, lm=None, M_max=None, embed_technique='resample', T=10):
+    def __init__(self, X, prior, hierarchy, assignments=None, K_max=None, lm=None, M_max=None):
 
         # Attributes from parameters
         self.X = X
-        self.lengths = lengths
+        self.hierarchy = hierarchy
         self.precision = 1./prior.var
         self.mu_0 = prior.mu_0
         self.precision_0 = 1./prior.var_0
         self.N, self.D = X.shape
-        self.T = T
         if K_max is None:
             # assert False, "To-do: remove this, always require `K_max`"
             K_max = 1
@@ -107,7 +106,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
           M_max = 1
         self.M_max = M_max
         self.lm = lm
-        self.technique = embed_technique
 
         # Initialize attributes
         self.mu_N_numerators = np.zeros((self.M_max, self.D), np.float)
@@ -174,6 +172,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
         self.precision_preds[k, :] = precision_pred
         self.counts[k] = count
 
+    # TODO
     def add_item(self, i, k):
         """
         Add data vector `X[i]` to word component `k`. If `k` is `K`, then a new component is added. No checks are performed
@@ -182,7 +181,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
         assert not i == -1
         if isinstance(k, int):
           k = [k]
-        assert self.lengths[i] == len(k)
+        # print('len(self.hierarchy[%d]), len(k): ' % (i) + str(len(self.hierarchy[i])) + ' ' + str(len(k)))
+        assert len(self.hierarchy[i]) == len(k)
         
         for m in k: 
           if m == self.M: # Create a new phone component 
@@ -216,10 +216,8 @@ class HierarchicalGaussianComponentsFixedVar(object):
           self.K += 1
           assert self.K == len(self.idx_to_word)
         
-        Xr = self.inv_embed(i)
-        # if len(k) == 1: # XXX
-        for l, m in enumerate(k): # Update component stats
-            self.mu_N_numerators[m, :] += self.precision*Xr[l]
+        for m, embed_id in zip(k, self.hierarchy[i]): # Update component stats
+            self.mu_N_numerators[m, :] += self.precision*self.X[embed_id]
             self.precision_Ns[m, :] += self.precision
             self.phone_counts[m] += 1
             self._update_log_prod_precision_pred_and_precision_pred(m)
@@ -232,7 +230,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
         assert not i == -1
         k = self.assignments[i]
         word = self.idx_to_word[k]
-        L = self.lengths[i] 
+        L = len(self.hierarchy[i]) 
 
         # Only do something if the data vector has been assigned
         if k != -1:
@@ -247,16 +245,15 @@ class HierarchicalGaussianComponentsFixedVar(object):
                       
             self.assignments[i] = -1
        
-            Xr = self.inv_embed(i)
             # if len(word.split(',')) == 1: # XXX
-            for l, m in enumerate(word.split(',')):
+            for m, embed_id in zip(word.split(','), self.hierarchy[i]):
                 if not m in self.phone_to_idx: # Only do something if the phone component has not been deleted
                   continue
                 m_idx = self.phone_to_idx[m]
                 if self.phone_counts[m_idx] == 0: # Delete the phone component if it is empty 
                   self.del_phone_component(m_idx)          
                 else: # Update the component stats if it is not empty 
-                  self.mu_N_numerators[m_idx, :] -= self.precision*Xr[l]
+                  self.mu_N_numerators[m_idx, :] -= self.precision*self.X[embed_id]
                   self.precision_Ns[m_idx, :] -= self.precision
                   self._update_log_prod_precision_pred_and_precision_pred(m_idx)
 
@@ -328,12 +325,13 @@ class HierarchicalGaussianComponentsFixedVar(object):
 
     # @profile
     def log_post_pred_active(self, i, log_post_preds):
-        active_words = [w for w, iw in sorted(self.word_to_idx.items(), key=lambda x:x[1]) if self.lengths[i] == len(w.split(','))]
-        return np.array([sum(log_post_preds[l, self.phone_to_idx[m]] for l, m in enumerate(w.split(','))) for w in active_words])
+        L = len(self.hierarchy[i]) 
+        active_words = [w for w, iw in sorted(self.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(',')) == L]
+        return np.array([np.mean([log_post_preds[l, self.phone_to_idx[m]] for l, m in enumerate(w.split(','))]) for w in active_words])
 
     # @profile
     def log_post_pred_inactive(self, log_post_preds, log_post_preds_active): 
-        log_marg_i = logsumexp(log_post_preds, axis=1).sum() 
+        log_marg_i = logsumexp(log_post_preds, axis=1).mean() 
         if not len(log_post_preds_active): # If none of the components are active, return the whole log marginal
           return log_marg_i
         else:
@@ -349,31 +347,16 @@ class HierarchicalGaussianComponentsFixedVar(object):
         under all components. 
         If vectorize is True, return a length `K`+1 vector with the first K entries containing log posterior predictive of `X[i]` under the active components and the last entry combining those of inactive components  
         """
-        n_min = max(2, int(self.T / self.lengths[i]))
-        n_max = n_min + 1
-        # TODO Divide the intervals proportional to the durations of the segments
-        if abs(n_max * self.lengths[i] - self.T) >= abs(n_min * self.lengths[i] - self.T):
-           n = n_min
-        else:
-           n = n_max     
-        Dr = int(self.D / self.T * n)
-        Xr = self.embed(self.X[i], n*self.lengths[i])  
-        # print('In HG log_post_pred, Xr.shape, self.lengths[i]: ' + str(Xr.shape) + ' ' + str(self.lengths[i]))
-        # print('In HG log_post_pred, n, Dr: ' + str(n) + ' ' + str(Dr))
-        
-        mu_Ns = np.asarray([self.embed(self.mu_N_numerators[m]/self.precision_Ns[m], n) for m in range(self.M)])
-        precision_preds = np.asarray([self.embed(self.precision_preds[m], n) for m in range(self.M)])
-        log_precision_preds = self.log_prod_precision_preds[:self.M]
+        L = len(self.hierarchy[i])
+        log_post_preds = np.nan*np.ones((L, self.M_max))
 
-        log_post_preds = np.nan*np.ones((self.lengths[i], self.M_max))
-        # print('In HG log_post_pred, X[%d]: ' % (i) + str(self.X[i]))
-        for l in range(self.lengths[i]):
-          # print('In HG log_post_pred, Xr[%d]: ' % (l) + str(Xr[l*Dr:(l+1)*Dr]))
-          deltas = mu_Ns - Xr[l*Dr:(l+1)*Dr]
+        mu_Ns = self.mu_N_numerators[:self.K]/self.precision_Ns[:self.K]
+        for l, embed_id in enumerate(self.hierarchy[i]):
+          deltas = mu_Ns - self.X[embed_id]
           log_post_preds[l, :self.M] = (
               self._cached_neg_half_D_log_2pi
-              + 0.5*log_precision_preds
-              - 0.5*((deltas*deltas)*precision_preds).sum(axis=1)
+              + 0.5*self.log_prod_precision_preds[:self.M]
+              - 0.5*((deltas*deltas)*self.precision_preds[:self.M]).sum(axis=1)
               )
 
         # return (
@@ -385,7 +368,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
         # print('In HG log_post_pred, np.argmax(log_post_preds, axis=1): ' + str(np.argmax(log_post_preds, axis=1)))
         return log_post_preds
 
-    # TODO
     def log_marg_k(self, k):
         """
         Return the log marginal probability of the data vectors assigned to
@@ -395,9 +377,18 @@ class HierarchicalGaussianComponentsFixedVar(object):
         for the data vectors assigned to component `k`. See (55) in Murphy's
         bayesGauss notes, p. 15.
         """
-        X = self.X[np.where(self.assignments == k)]
+
+        indices = np.where(self.assignments == k)[0]
+        X = []
+        N = 0
+        # TODO
+        for i in indices.tolist():
+          for embed_id in self.hierarchy[i]:
+            X.append(self.X[embed_id])
+        
+        X = np.asarray(X)
         N = self.counts[k]
-        return np.sum(
+        return np.mean(
             (N - 1)/2.*np.log(self.precision)
             - 0.5*N*math.log(2*np.pi)
             - 0.5*np.log(N/self.precision_0 + 1./self.precision)
@@ -410,7 +401,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
                 )/(N/self.precision_0 + 1./self.precision)
             )  
     
-    # TODO
     def log_marg(self):
         """
         Return the log marginal probability of all the data vectors given the
@@ -424,68 +414,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
             log_prob_X_given_z += self.log_marg_k(k)
         return log_prob_X_given_z
 
-    def inv_embed(self, i):
-        """
-        Return a `n`x`D` matrix of phone-level embedding vectors reconstructed from data vector i
-        """
-        n = self.lengths[i] * self.T
-        x = self.X[i].reshape(self.T, -1).T
-        x_inv = self.__embed(x, n, technique=self.technique).T
-        return x_inv.reshape(-1, self.D)
-
-    def embed(self, x, n):
-        return self.__embed(x.reshape(self.T, -1).T, n, technique=self.technique).T.flatten("C")
-
-    def __embed(self, y, n, technique='resample'):
-      if y.shape[1] < n and technique != 'mean' and technique != 'rasanen': 
-          technique = "resample"
-
-      # Downsample
-      if y.shape[1] == 0:
-          return np.zeros((y.shape[0],)) 
-      if technique == "interpolate":
-          x = np.arange(y.shape[1])
-          f = interpolate.interp1d(x, y, kind="linear")
-          x_new = np.linspace(0, y.shape[1] - 1, n)
-          y_new = f(x_new)
-      elif technique == "resample": 
-          y_new = signal.resample(y.astype("float32"), n, axis=1)
-      elif technique == "rasanen": 
-        # Taken from Rasenen et al., Interspeech, 2015
-        d_frame = y.shape[0]
-        if y.shape[1] >= n:
-          n_frames_in_multiple = int(np.floor(y.shape[1] / n)) * n
-          n_frames_in_multiple_max = (int(np.floor(y.shape[1] / n)) + 1) * n
-          if abs(y.shape[1] - n_frames_in_multiple) > abs(y.shape[1] - n_frames_in_multiple_max):
-            n_frames_in_multiple = n_frames_in_multiple_max 
-            y_new = np.concatenate(
-                  [y, np.tile(y[:, -1, np.newaxis], (1, n_frames_in_multiple - y.shape[1]))], axis=1
-                  )
-            y_new = np.mean(y_new.reshape((d_frame, n, -1)), axis=-1)
-          else:
-            y_new = np.mean(
-              y[:, :n_frames_in_multiple].reshape((d_frame, n, -1)), axis=-1
-              ) 
-        else:
-          n_min = int(np.floor(n / y.shape[1])) 
-          n_max = n_min + 1
-          if abs(n_max * y.shape[1] - n) >= abs(n_min * y.shape[1] - n):
-              n_per_frame = n_min
-          else:
-              n_per_frame = n_max
-            
-          y_new = np.tile(y[:, :, np.newaxis], (1, 1, n_per_frame)).reshape(d_frame, -1)
-          if y_new.shape[1] > n:
-              y_new = y_new[:n]
-          if y_new.shape[1] < n:
-              y_new = np.concatenate(
-                [y_new, np.tile(y_new[:, -1, np.newaxis], (1, n - y_new.shape[1]))], axis=1
-                )          
-      elif technique == 'mean':
-          y_new = np.mean(y, axis=1, keepdims=True)
-      return y_new
-
-
     def rand_k(self, k):
         """
         Return a random mean vector from the posterior product of normal
@@ -498,7 +426,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
             mean[i] = np.random.normal(mu_N[i], np.sqrt(var_N[i]))
         return mean
 
-    def get_assignments(self, list_of_i): # TODO Check this
+    def get_assignments(self, list_of_i): 
         """
         Return a vector of the assignments for the data vector indices in
         `list_of_i`.
@@ -520,23 +448,17 @@ class HierarchicalGaussianComponentsFixedVar(object):
         """
         Return the value of the log of the product of univariate normal PDFs at
         `X[i]`.
-        """ 
-        n = max(2, int(self.T / self.lengths[i]))
-        Dr = int(self.D / self.T * n)
-        L = int(self.T / n) 
+        """  
+        L = len(self.hierarchy[i]) 
 
-        log_prod_precision_preds_r = log_prod_precision_pred
-        precision_pred_r = self.embed(precision_pred, n)
         log_probs = np.nan*np.ones((L, 1))
-        for l in range(L):
-          delta = self.X[i, l*Dr:(l+1)*Dr] - self.embed(mu, n)
+        for l, embed_id in enumerate(self.hierarchy[i]):
+          delta = self.X[embed_id] - mu
           log_probs[l] = (
             self._cached_neg_half_D_log_2pi
-            + 0.5 * log_prod_precision_preds_r
-            - 0.5 * _cython_utils.sum_square_a_times_b(delta, precision_pred_r)
+            + 0.5 * log_prod_precision_pred
+            - 0.5 * _cython_utils.sum_square_a_times_b(delta, precision_pred)
             )
-        if L < self.lengths[i]: # For the probabilities of unused phone embeddings are equal to the probability of the last used phone embedding
-          log_probs[L:] = log_probs[L-1] 
         return log_probs.sum() 
 
 #-----------------------------------------------------------------------------#

@@ -138,8 +138,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             beta_sent_boundary=2.0, lms=1., wip=0., fb_type="standard",
             init_am_assignments="rand",
             time_power_term=1., 
-            am_M = None, am_T = None, 
-            embed_technique='resample',
+            am_M = None,
             model_name='hierarchical_mbes_gmm'):
 
         self.model_name = model_name
@@ -150,8 +149,6 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
 
         if am_M is None:
           am_M = am_K / 10
-        if am_T is None:
-          am_T = 10
 
         # Initialize simple attributes
         self.n_slices_min = n_slices_min
@@ -179,8 +176,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             seed_boundaries = None
         lengths = [len(landmarks_dict[i])-1 if landmarks_dict[i][0] == 0 else len(landmarks_dict[i]) for i in ids_to_utterance_labels]
         landmarks = [landmarks_dict[i][1:] if landmarks_dict[i][0] == 0 else landmarks_dict[i] for i in ids_to_utterance_labels]
-        durations = [durations_dict[i] for i in ids_to_utterance_labels]
-        segment_lengths = compute_segment_lengths(lengths, a_vec_ids, n_slices_min, n_slices_max)
+        durations = [durations_dict[i] for i in ids_to_utterance_labels] 
+        hierarchy = create_hierarchy(lengths, a_vec_ids, n_slices_min, n_slices_max)
 
         self.utterances = Utterances(
             lengths, a_vec_ids, durations, landmarks, seed_boundaries=seed_boundaries,
@@ -226,9 +223,9 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
 
             # Initialize `acoustic_model`
             self.acoustic_model = am_class(
-                a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
+                a_embeddings, am_param_prior, am_alpha, am_K, hierarchy, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                p=p_boundary_init/2., M=am_M, T=am_T, embed_technique=embed_technique)
+                p=p_boundary_init/2., M=am_M)
 
         elif init_am_assignments == "rand":
 
@@ -245,17 +242,17 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
 
             # Initialize `acoustic_model`
             self.acoustic_model = am_class(
-                a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
+                a_embeddings, am_param_prior, am_alpha, am_K, hierarchy, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                M=am_M, T=am_T, embed_technique=embed_technique)
+                M=am_M)
 
         elif init_am_assignments == "one-by-one":
             # Initialize `acoustic_model`
             logger.info("Using a one-by-one initial assignment")
             self.acoustic_model = am_class(
-                a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
+                a_embeddings, am_param_prior, am_alpha, am_K, hierarchy, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                M=am_M, T=am_T, embed_technique=embed_technique)
+                M=am_M)
             # Assign the embeddings one-by-one
             for i_embed in init_embeds:
                 self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, log_prob_z=[])
@@ -267,9 +264,9 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             assignments[init_embeds] = init_embeds_assignments 
             # Initialize `acoustic_model`
             self.acoustic_model = am_class(
-                a_embeddings, am_param_prior, am_alpha, am_K, segment_lengths, 
+                a_embeddings, am_param_prior, am_alpha, am_K, hierarchy, 
                 assignments=assignments, covariance_type=covariance_type, lms=lms, 
-                M=am_M, T=am_T, embed_technique=embed_technique)
+                M=am_M)
         else:
             assert False, "invalid value for `init_am_assignments`: " + init_am_assignments
         
@@ -415,7 +412,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         
         # Update alignment parameters 
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))       
-        # print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
+        print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
         self.alignment_model.add_item(i, self.alignment_model.src_sents[i], trg_sent)
 
         # Debug trace
@@ -701,8 +698,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        # if i_utt > 29:
-        #   break
+        if i_utt > 29:
+          break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 
@@ -751,17 +748,16 @@ def process_embeddings(embedding_mats, vec_ids_dict):
 
     return (np.asarray(embeddings), vec_ids, ids_to_utterance_labels)
 
-def compute_segment_lengths(lengths, vec_ids, n_slices_min=0, n_slices_max=np.inf):
-    segment_lengths = -1 * np.ones((n_slices_max - max(n_slices_min, 1) + 1)*sum(lengths), np.int64)
+def create_hierarchy(lengths, vec_ids, n_slices_min=0, n_slices_max=np.inf):
+    hierarchy = []
     for n_slices, cur_vec_ids in zip(lengths, vec_ids):
         for cur_start in range(n_slices):
             for cur_end in range(cur_start + max(n_slices_min - 1, 0), min(n_slices, cur_start + n_slices_max)):
                 cur_end += 1
-                t = cur_end
-                i = t*(t-1)/2
-                i_embed = int(cur_vec_ids[i + cur_start])
-                segment_lengths[i_embed] = cur_end - cur_start
-    return segment_lengths
+                cur_hierarchy = [int(cur_vec_ids[int(sub_start+sub_start*(sub_start+1)/2)]) for sub_start in range(cur_start, cur_end)]
+                # print('cur_hierarchy, cur_start, cur_end: ' + str(cur_hierarchy) + ' ' + str(cur_start) + ' ' + str(cur_end))
+                hierarchy.append(cur_hierarchy)
+    return hierarchy
 
 #-----------------------------------------------------------------------------#
 #                     FORWARD-BACKWARD INFERENCE FUNCTIONS                    #

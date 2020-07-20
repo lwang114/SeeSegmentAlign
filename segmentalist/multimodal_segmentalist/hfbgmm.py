@@ -60,16 +60,16 @@ class HierarchicalFBGMM(object):
         The temporal dimension of the embedding vectors
     """
 
-    def __init__(self, X, prior, alpha, K, lengths,
+    def __init__(self, X, prior, alpha, K, hierarchy,
             assignments="rand", covariance_type="full", lms=1.0, 
-            p=0.5, M=None, T=None, embed_technique='resample'):
+            p=0.5, M=None):
         self.alpha = alpha
         self.prior = prior
-        self.lengths = lengths
+        self.hierarchy = hierarchy
         self.covariance_type = covariance_type
         self.lms = lms
         self.p = p
-        self.setup_components(K, assignments, X, M=M, T=T, embed_technique=embed_technique)
+        self.setup_components(K, assignments, X, M=M)
 
         # N, D = X.shape
 
@@ -98,7 +98,7 @@ class HierarchicalFBGMM(object):
         # else:
         #     assert False, "Invalid covariance type."
 
-    def setup_components(self, K, assignments="rand", X=None, M=None, T=None, embed_technique='resample'):
+    def setup_components(self, K, assignments="rand", X=None, M=None):
         """
         Setup the `components` attribute.
 
@@ -139,7 +139,7 @@ class HierarchicalFBGMM(object):
         # elif self.covariance_type == "diag":
         #     self.components = GaussianComponentsDiag(X, self.prior, assignments, K_max=K)
         if self.covariance_type == "fixed":
-          self.components = HierarchicalGaussianComponentsFixedVar(X, self.prior, self.lengths, assignments=assignments, K_max=K, M_max=M, T=T, embed_technique=embed_technique)
+          self.components = HierarchicalGaussianComponentsFixedVar(X, self.prior, self.hierarchy, assignments=assignments, K_max=K, M_max=M)
         else:
             assert False, "Invalid covariance type."
 
@@ -269,6 +269,7 @@ class HierarchicalFBGMM(object):
         is dropped (since x_i is already not included in the counts).
         """
         assert i != -1
+        L = len(self.hierarchy[i])
         if not len(log_prob_z):
           # Compute log probability of `X[i]` belonging to each component
           # (24.26) in Murphy, p. 843
@@ -278,7 +279,7 @@ class HierarchicalFBGMM(object):
             - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha)
             )
 
-        log_prior_z = self.log_prob_z_given_l(log_prob_z, self.lengths[i])
+        log_prior_z = self.log_prob_z_given_l(log_prob_z, L)
         log_post_pred = self.components.log_post_pred(i)
         # print('embedding %d log_post_pred: ' % i + str(log_post_pred))
         log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
@@ -459,7 +460,7 @@ class HierarchicalFBGMM(object):
         a call to this function is because this won't allow for caching the old
         component stats.
         """
-        L = self.lengths[i]
+        L = len(self.hierarchy[i])
         if not len(log_prob_z):
           # Compute log probability of `X[i]` belonging to each component
           # (24.26) in Murphy, p. 843
@@ -510,7 +511,7 @@ class HierarchicalFBGMM(object):
         This function is very similar to `gibbs_sample_inside_loop_i`, but
         instead of sampling the assignment, the MAP estimate is used.
         """
-        L = self.lengths[i]
+        L = len(self.hierarchy[i])
         log_prob_z = np.zeros((L, self.components.M_max))
         # Compute log probability of `X[i]` belonging to each component
         # (24.26) in Murphy, p. 843
