@@ -1,5 +1,5 @@
 # Driver code to run acoustic word discovery systems
-# by Kamper, Livescu and Goldwater 2016
+# based on Kamper, Livescu and Goldwater 2016
 import numpy as np
 import json
 from segmentalist.multimodal_segmentalist.multimodal_unigram_acoustic_wordseg import *
@@ -87,7 +87,8 @@ parser.add_argument("--n_slices_max", type=int, default=11, help="Maximum slices
 parser.add_argument("--min_duration", type=int, default=0, help="Minimum slices of a segment")
 parser.add_argument("--technique", choices={"resample", "interpolate", "rasanen", "mean"}, default="resample", help="Embedding technique")
 parser.add_argument("--am_class", choices={"fbgmm", "hfbgmm"}, default='fbgmm', help="Class of acoustic model")
-parser.add_argument("--am_K", type=int, default=65, help="Number of acoustic clusters")
+parser.add_argument("--am_K", type=int, default=65, help="Number of acoustic word clusters")
+parser.add_argument("--am_M", type=int, default=50, help="Number of phone clusters (used only by the hierarchical model)")
 parser.add_argument("--vm_class", choices={"vgmm"}, default='vgmm', help="Class of visual model")
 parser.add_argument("--vm_K", type=int, default=65, help="Number of visual clusters")
 parser.add_argument('--aligner_class', choices={'mixture_aligner', 'crp_aligner'}, default='mixture_aligner', help='Class of alignment model')
@@ -105,6 +106,7 @@ parser.add_argument('--time_power_term', type=float, default=1., help='Scaling o
 parser.add_argument('--am_alpha', type=float, default=1., help='Concentration parameter')
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
 parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
+parser.add_argument('--start_step', type=int, default=0, help='Step to start the experiment')
 
 args = parser.parse_args()
 print(args)
@@ -152,7 +154,7 @@ elif args.audio_feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
 
-start_step = 0
+start_step = args.start_step
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
@@ -172,10 +174,11 @@ if start_step == 0:
     landmark_ids = []
   print(len(list(audio_feats.keys())))
 
+  # TODO Hierarchical model feature extraction
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    # if i_ex > 29:
-    #   break
+    if i_ex > 29:
+      break
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -210,12 +213,13 @@ if start_step == 0:
             vec_ids[i + cur_start] = i_embed
             n_down_slices = args.embed_dim / feat_dim
             start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate) 
-            embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args)           
+            if args.am_class != 'hfbgmm' or cur_end - cur_start == 1:
+              embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
 
     vec_ids_dict[landmark_ids[i_ex]] = vec_ids
-    embedding_mats[landmark_ids[i_ex]] = embed_mat
+    embedding_mats[landmark_ids[i_ex]] = embed_mat[:i_embed]
     durations_dict[landmark_ids[i_ex]] = durations 
 
   np.savez(args.exp_dir+"embedding_mats.npz", **embedding_mats)
@@ -332,8 +336,7 @@ if start_step <= 2:
     # Perform sampling
     record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule="linear", anneal_gibbs_am=True) 
   elif args.am_class == "hfbgmm":
-    am_M = 50 # XXX
-    am_T = int(args.embed_dim / args.mfcc_dim)
+    am_M = args.am_M # XXX
     segmenter = HierarchicalMultimodalUnigramAcousticWordseg(
         am_class, am_alpha, am_K, am_param_prior,
         vm_class, vm_K, vm_param_prior,
@@ -344,8 +347,7 @@ if start_step <= 2:
         time_power_term=args.time_power_term,
         init_am_assignments='kmeans', 
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
-        am_M=am_M, am_T=am_T,
-        embed_technique=args.technique,
+        am_M=am_M,
         model_name=args.exp_dir+'hierarchical_mbes_gmm'
         ) 
 
