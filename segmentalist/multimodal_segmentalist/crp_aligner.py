@@ -245,16 +245,20 @@ class CRPAligner(object):
     
     # Create a list of target vocabulary
     trg_vocabs = self.get_trg_vocabs()
+    if len(trg_vocabs) > 0:
+      for tw in trg_vocabs:
+        # Compute p(f_t=f|e_j, i_t=j)     
+        src_to_trg_prob = self.translate_prob_f(tw)  
+        # print('max(src_to_trg_prob), min(src_to_trg_prob): ' + str(max(src_to_trg_prob)) + ' ' + str(min(src_to_trg_prob)))
+        # Compute p(f_t=f, i_t=j|y^i_j), p(f_t=f|y^i) and take the log
+        log_prob_f_given_y_i[tw] = np.log(np.maximum(np.mean(np.dot(self.src_sents[i], src_to_trg_prob), axis=0), EPS))
+        
+      # Add the probability for activating a new word cluster
+      p_active = np.exp(logsumexp(list(log_prob_f_given_y_i.values())))
+      # print('p_active: ' + str(p_active))
+    else:
+      p_active = 0.
 
-    for tw in trg_vocabs:
-      # Compute p(f_t=f|e_j, i_t=j)     
-      src_to_trg_prob = self.translate_prob_f(tw)  
-
-      # Compute p(f_t=f, i_t=j|y^i_j), p(f_t=f|y^i) and take the log
-      log_prob_f_given_y_i[tw] = np.log(np.maximum(np.mean(np.dot(self.src_sents[i], src_to_trg_prob), axis=0), EPS))
-
-    # Add the probability for activating a new word cluster
-    p_active = np.exp(logsumexp(list(log_prob_f_given_y_i.values())))
     log_prob_f_given_y_i[NEWWORD] = np.log(np.maximum(1 - p_active, EPS)) # TODO Check this 
     return log_prob_f_given_y_i 
 
@@ -319,8 +323,8 @@ class CRPAligner(object):
   def get_trg_vocabs(self):
     return set([w for k in range(self.Ks) for w in self.restaurants[k].name2table])
 
-  def p_init(self, trg_word):
-    return (1. / self.Kt) ** len(trg_word.split(','))
+  def p_init(self, trg_word, p=0.5): 
+    return p / (1 - p) * ((1 - p) / self.Kt) ** len(trg_word.split(','))
 
 #-----------------------------------------------------------------------------#
 #                            UTITLITY FUNCTIONS                               #
@@ -359,7 +363,7 @@ class Restaurant:
     self.alpha0 = alpha0
 
   def seat_to(self, k, w=1):
-    self.ncustomers += 1 
+    self.ncustomers += w 
     tables = self.tables # shallow copy the tables to a local variable
     if not k in self.name2table: # add a new table
       tables.append(w)
@@ -374,7 +378,7 @@ class Restaurant:
     if k not in self.name2table: # If key does not represent any table, do nothing
       return
 
-    self.ncustomers -= 1
+    self.ncustomers -= w
     i = self.name2table[k]
     tables = self.tables
     tables[i] -= w

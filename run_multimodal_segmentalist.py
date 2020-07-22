@@ -35,7 +35,7 @@ def embed(y, n, args):
 
   if y.shape[1] == 0:
       return np.zeros((args.embed_dim,)) 
-
+ 
   y = y[:args.mfcc_dim, :]
   # Downsample
   if args.technique == "interpolate":
@@ -106,6 +106,7 @@ parser.add_argument('--time_power_term', type=float, default=1., help='Scaling o
 parser.add_argument('--am_alpha', type=float, default=1., help='Concentration parameter')
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
 parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
+parser.add_argument('--anneal', '-a', action='store_true', help='Use annealing for training')
 parser.add_argument('--start_step', type=int, default=0, help='Step to start the experiment')
 
 args = parser.parse_args()
@@ -177,7 +178,7 @@ if start_step == 0:
   # TODO Hierarchical model feature extraction
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    if i_ex > 29:
+    if i_ex > 60:
       break
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
@@ -188,7 +189,7 @@ if start_step == 0:
     else:
       feat_mat = feat_mat[:, :args.mfcc_dim]
     
-    feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
+    # feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
 
     if not args.landmarks_file:
       n_slices = feat_mat.shape[0]
@@ -202,8 +203,7 @@ if start_step == 0:
     vec_ids = -1 * np.ones((n_slices * (1 + n_slices) / 2,))
     durations = np.nan * np.ones((n_slices * (1 + n_slices) / 2,))
 
-    i_embed = 0        
-    
+    i_embed = 0            
     # Store the vec_ids using the mapping i_embed = end * (end - 1) / 2 + start (following unigram_acoustic_wordseg.py)
     for cur_start in range(n_slices):
         for cur_end in range(cur_start + max(args.n_slices_min - 1, 0), min(n_slices, cur_start + args.n_slices_max)):
@@ -214,7 +214,7 @@ if start_step == 0:
             n_down_slices = args.embed_dim / feat_dim
             start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate) 
             if args.am_class != 'hfbgmm' or cur_end - cur_start == 1:
-              embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame+1].T, n_down_slices, args)           
+              embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
 
@@ -267,8 +267,8 @@ if start_step <= 2:
     am_alpha = args.am_alpha
     am_K = args.am_K
     m_0 = np.zeros(D)
-    k_0 = 0.2
-    S_0 = 0.2*np.ones(D) # 0.002*np.ones(D) 
+    k_0 = 0.02
+    S_0 = 0.02*np.ones(D) # 0.002*np.ones(D) 
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
   elif args.am_class == "hfbgmm":
     D = args.embed_dim
@@ -304,6 +304,10 @@ if start_step <= 2:
       Warning("aligner class %s is not compatible with am class %s, switch to crp aligner" % (args.aligner_class, args.am_class))
       aligner_class = crp_aligner.CRPAligner
 
+  anneal_schedule = None
+  if args.anneal:
+    anneal_schedule = 'linear'
+  
   if args.am_class == "fbgmm":
     if args.segmenter_class == 'standard':
       segmenter = MultimodalUnigramAcousticWordseg(
@@ -331,12 +335,12 @@ if start_step <= 2:
         init_am_assignments='visually-guided', 
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         model_name=args.exp_dir+'mbes_gmm'
-        ) # XXX init_am_assignments='one-by-one'
+        ) 
 
     # Perform sampling
-    record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule="linear", anneal_gibbs_am=True) 
+    record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule=anneal_schedule, anneal_gibbs_am=True) 
   elif args.am_class == "hfbgmm":
-    am_M = args.am_M # XXX
+    am_M = args.am_M
     segmenter = HierarchicalMultimodalUnigramAcousticWordseg(
         am_class, am_alpha, am_K, am_param_prior,
         vm_class, vm_K, vm_param_prior,
@@ -352,7 +356,7 @@ if start_step <= 2:
         ) 
 
     # Perform sampling
-    record = segmenter.gibbs_sample(args.n_iter, 0, anneal_schedule="linear", anneal_gibbs_am=True) 
+    record = segmenter.gibbs_sample(args.n_iter, 0, anneal_schedule=anneal_schedule, anneal_gibbs_am=True)
   print("Take %0.5f s to finish training !" % (time.time() - begin_time))
   np.save("%spred_boundaries.npy" % args.exp_dir, segmenter.utterances.boundaries)
   
