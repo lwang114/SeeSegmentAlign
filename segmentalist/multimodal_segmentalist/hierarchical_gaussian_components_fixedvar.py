@@ -172,7 +172,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
         self.precision_preds[k, :] = precision_pred
         self.counts[k] = count
 
-    # TODO
     def add_item(self, i, k):
         """
         Add data vector `X[i]` to word component `k`. If `k` is `K`, then a new component is added. No checks are performed
@@ -180,50 +179,77 @@ class HierarchicalGaussianComponentsFixedVar(object):
         """
         assert not i == -1
         if isinstance(k, int):
-          k = [k]
-        # print('len(self.hierarchy[%d]), len(k): ' % (i) + str(len(self.hierarchy[i])) + ' ' + str(len(k)))
-        assert len(self.hierarchy[i]) == len(k)
-        
-        for m in k: 
-          if m == self.M: # Create a new phone component 
-            if self.M == self.M_max: # Check the number of subword units is below upper limit; otherwise, increase the upper limit
-              self.M_max += 1
-              self.phone_counts = np.append(self.phone_counts, np.zeros(1))
-              self.mu_N_numerators = np.append(self.mu_N_numerators, np.zeros((1, self.D)))
-              self.precision_preds = np.append(self.precision_preds, np.zeros((1, self.D)))
+          if k == self.M: # Create a new phone component 
+              if self.M == self.M_max: # Check the number of subword units is below upper limit; otherwise, increase the upper limit
+                self.M_max += 1
+                self.phone_counts = np.append(self.phone_counts, np.zeros(1))
+                self.mu_N_numerators = np.append(self.mu_N_numerators, np.zeros((1, self.D)))
+                self.precision_preds = np.append(self.precision_preds, np.zeros((1, self.D)))
 
-            for im in range(self.M_max): # Create a key for the new component
-              if not str(im) in self.phone_to_idx:  
-                # print('In HG add_item, phone_counts[M] before being replaced: ' + str(self.phone_counts[self.M]))
-                # print('In HG add_item, add a new phone: ' + str(im) + ' ' + str(self.M))
-                self.phone_to_idx[str(im)] = self.M
-                self.idx_to_phone.append(str(im)) 
-                self.M += 1
-                assert self.M == len(self.idx_to_phone)
-                break 
+              for im in range(self.M_max): # Create a key for the new component
+                if not str(im) in self.phone_to_idx:  
+                  # print('In HG add_item, phone_counts[M] before being replaced: ' + str(self.phone_counts[self.M]))
+                  # print('In HG add_item, add a new phone: ' + str(im) + ' ' + str(self.M))
+                  self.phone_to_idx[str(im)] = self.M
+                  self.idx_to_phone.append(str(im)) 
+                  self.M += 1
+                  assert self.M == len(self.idx_to_phone)
+                  break 
+            
+              self.mu_N_numerators[k, :] = self.precision_0*self.mu_0
+              self.precision_Ns[k, :] = self.precision_0
           
-            self.mu_N_numerators[m, :] = self.precision_0*self.mu_0
-            self.precision_Ns[m, :] = self.precision_0
+          assert len(self.hierarchy[i]) == 1 
+          for embed_id in self.hierarchy[i]: # Update component stats
+            self.mu_N_numerators[k, :] += self.precision*self.X[embed_id]
+            self.precision_Ns[k, :] += self.precision
+            self.phone_counts[k] += 1
+            self._update_log_prod_precision_pred_and_precision_pred(k)
+            # print('len(self.hierarchy[%d]), len(k): ' % (i) + str(len(self.hierarchy[i])) + ' ' + str(len(k)))
+        else:
+          assert len(self.hierarchy[i]) == len(k)
         
-        w = ','.join(self.idx_to_phone[m] for m in k)
-        if not w in self.word_to_idx: # Create a new word component         
-          # print('In HG add_item, add a new word: ' + w + ' ' + str(self.K))
-          if self.K == self.K_max: # Check the number of word units is below upper limit
-            self.K_max += 1
-            self.counts = np.append(self.counts, np.zeros(1, np.int)) 
-          self.word_to_idx[w] = self.K
-          self.idx_to_word.append(w)
-          self.K += 1
-          assert self.K == len(self.idx_to_word)
+          for m in k: 
+            if m == self.M: # Create a new phone component 
+              if self.M == self.M_max: # Check the number of subword units is below upper limit; otherwise, increase the upper limit
+                self.M_max += 1
+                self.phone_counts = np.append(self.phone_counts, np.zeros(1))
+                self.mu_N_numerators = np.append(self.mu_N_numerators, np.zeros((1, self.D)))
+                self.precision_preds = np.append(self.precision_preds, np.zeros((1, self.D)))
+
+              for im in range(self.M_max): # Create a key for the new component
+                if not str(im) in self.phone_to_idx:  
+                  # print('In HG add_item, phone_counts[M] before being replaced: ' + str(self.phone_counts[self.M]))
+                  # print('In HG add_item, add a new phone: ' + str(im) + ' ' + str(self.M))
+                  self.phone_to_idx[str(im)] = self.M
+                  self.idx_to_phone.append(str(im)) 
+                  self.M += 1
+                  assert self.M == len(self.idx_to_phone)
+                  break 
+            
+              self.mu_N_numerators[m, :] = self.precision_0*self.mu_0
+              self.precision_Ns[m, :] = self.precision_0
         
-        for m, embed_id in zip(k, self.hierarchy[i]): # Update component stats
-            self.mu_N_numerators[m, :] += self.precision*self.X[embed_id]
-            self.precision_Ns[m, :] += self.precision
-            self.phone_counts[m] += 1
-            self._update_log_prod_precision_pred_and_precision_pred(m)
-        
-        self.counts[self.word_to_idx[w]] += 1
-        self.assignments[i] = self.word_to_idx[w]
+          w = ','.join(self.idx_to_phone[m] for m in k)
+          if not w in self.word_to_idx: # Create a new word component         
+            # print('In HG add_item, add a new word: ' + w + ' ' + str(self.K))
+            if self.K == self.K_max: # Check the number of word units is below upper limit        
+              self.K_max += 1
+              self.counts = np.append(self.counts, np.zeros(1, np.int)) 
+            self.word_to_idx[w] = self.K
+            self.idx_to_word.append(w)
+            self.K += 1
+            assert self.K == len(self.idx_to_word)
+          
+          '''
+          for m, embed_id in zip(k, self.hierarchy[i]): # Update component stats
+              self.mu_N_numerators[m, :] += self.precision*self.X[embed_id]
+              self.precision_Ns[m, :] += self.precision
+              self.phone_counts[m] += 1
+              self._update_log_prod_precision_pred_and_precision_pred(m)
+          ''' 
+          self.counts[self.word_to_idx[w]] += 1
+          self.assignments[i] = self.word_to_idx[w]
 
     def del_item(self, i):
         """Remove data vector `X[i]` from its component."""
@@ -237,15 +263,16 @@ class HierarchicalGaussianComponentsFixedVar(object):
             w_indices = [self.phone_to_idx[m] for m in word.split(',')] 
             assert L == len(w_indices) 
             self.counts[k] -= 1
-            for l, m_idx in enumerate(w_indices):
-              self.phone_counts[m_idx] -= 1
-
             if self.counts[k] == 0:
               self.del_component(w_indices)
                       
             self.assignments[i] = -1
        
-            # if len(word.split(',')) == 1: # XXX
+            # XXX
+            '''
+            for l, m_idx in enumerate(w_indices):
+                self.phone_counts[m_idx] -= 1
+
             for m, embed_id in zip(word.split(','), self.hierarchy[i]):
                 if not m in self.phone_to_idx: # Only do something if the phone component has not been deleted
                   continue
@@ -256,6 +283,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
                   self.mu_N_numerators[m_idx, :] -= self.precision*self.X[embed_id]
                   self.precision_Ns[m_idx, :] -= self.precision
                   self._update_log_prod_precision_pred_and_precision_pred(m_idx)
+            '''
 
     def del_component(self, k):
         """Remove the word component `k`, where `k` is a phone index or list of phone indices.""" 
@@ -336,21 +364,21 @@ class HierarchicalGaussianComponentsFixedVar(object):
           return log_marg_i
         else:
           log_marg_i_active = logsumexp(log_post_preds_active)
-          # print('log_marg_i, log_marg_i_active: ', log_marg_i, log_marg_i_active)
-          # print('np.log(1 - np.exp(log_marg_i_active - log_marg_i)): ', np.log(max(1 - np.exp(log_marg_i_active - log_marg_i), EPS))) # XXX
-          return log_marg_i + np.log(max(1 - np.exp(log_marg_i_active - log_marg_i), EPS)) # TODO Check this  
+          # print('l=%d, log_marg_i, log_marg_i_active: ' % log_post_preds.shape[0] + str(log_marg_i) + ' ' + str(log_marg_i_active))
+          # print('l=%d, log_marg_i_inactive: ', log_marg_i + np.log(max(1 - np.exp(log_marg_i_active - log_marg_i), EPS))) # XXX
+          return log_marg_i + np.log(max(1 - np.exp(log_marg_i_active - log_marg_i), EPS)) 
 
     # @profile
     def log_post_pred(self, i):
         """
-        If vectorize is False, return a lengths[i]x`M`-dimensional matrix of the posterior predictive of `X[i]`
+        return a lengths[i]x`M`-dimensional matrix of the posterior predictive of `X[i]`
         under all components. 
-        If vectorize is True, return a length `K`+1 vector with the first K entries containing log posterior predictive of `X[i]` under the active components and the last entry combining those of inactive components  
         """
         L = len(self.hierarchy[i])
         log_post_preds = np.nan*np.ones((L, self.M_max))
 
-        mu_Ns = self.mu_N_numerators[:self.K]/self.precision_Ns[:self.K]
+        mu_Ns = self.mu_N_numerators[:self.M] / self.precision_Ns[:self.M]
+        # print('In HG, self.precision_Ns: ', self.precision_Ns)
         for l, embed_id in enumerate(self.hierarchy[i]):
           deltas = mu_Ns - self.X[embed_id]
           log_post_preds[l, :self.M] = (
@@ -365,7 +393,7 @@ class HierarchicalGaussianComponentsFixedVar(object):
         #     - 0.5*(np.square(deltas)*self.precision_preds[:self.K]).sum(axis=1)
         #     ) 
         log_post_preds[:, self.M:] = np.tile(self.log_prior(i), (1, self.M_max-self.M))
-        # print('In HG log_post_pred, np.argmax(log_post_preds, axis=1): ' + str(np.argmax(log_post_preds, axis=1)))
+        # print('In HG log_post_pred, log_post_preds: ' + str(log_post_preds))
         return log_post_preds
 
     def log_marg_k(self, k):
@@ -381,7 +409,6 @@ class HierarchicalGaussianComponentsFixedVar(object):
         indices = np.where(self.assignments == k)[0]
         X = []
         N = 0
-        # TODO
         for i in indices.tolist():
           for embed_id in self.hierarchy[i]:
             X.append(self.X[embed_id])

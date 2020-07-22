@@ -149,6 +149,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
 
         if am_M is None:
           am_M = am_K / 10
+        self.am_M = am_M       
 
         # Initialize simple attributes
         self.n_slices_min = n_slices_min
@@ -260,7 +261,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             logger.info("Using a kmeans initial assignment")
             
             # k-means initialization
-            init_embeds_assignments = KMeans(n_clusters=am_M).fit_predict(a_embeddings[init_embeds])
+            kmeans = KMeans(n_clusters=am_M).fit(a_embeddings[init_embeds])
+            init_embeds_assignments = kmeans.labels_
             assignments[init_embeds] = init_embeds_assignments 
             # Initialize `acoustic_model`
             self.acoustic_model = am_class(
@@ -277,12 +279,9 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
 
         # Generate visual posteriors as source sentences to the aligner 
         v_sents = [np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i_utt]]) for i_utt in range(self.utterances.D)] 
-        
-        # Generate unsupervised transcripts as target sentences to the aligner
-        a_sents = [self.get_unsup_transcript_i(i_utt) for i_utt in range(self.utterances.D)]
+        a_sents = [[] for i_utt in range(self.utterances.D)] # XXX Use placeholder sentences to avoid updating counts using bad initial segmentation 
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
-        self.alignment_model.setup_restaurants()
 
     def set_fb_type(self, fb_type):
         self.fb_type = fb_type
@@ -312,17 +311,14 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             logger.debug("log p(X) before sampling: " + str(self.acoustic_model.log_marg()))
             logger.debug("Unsupervised transcript before sampling: " + str(self.get_unsup_transcript_i(i))) 
 
-        # Remove embeddings from utterance `i` from the `acoustic_model`
-        for i_embed in self.utterances.get_segmented_embeds_i(i):
-            if i_embed == -1:
-                continue  # don't remove a non-embedding (would accidently remove the last embedding)
-            self.acoustic_model.components.del_item(i_embed)
-        self.alignment_model.del_item(i) 
         log_prob_z_dict = self.alignment_model.log_prob_f_given_y_i(i)
-        word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
-        log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
-        log_prob_z.append(log_prob_z_dict[NEWWORD])
-        log_prob_z = np.asarray(log_prob_z)
+        if len(log_prob_z_dict) == 1:
+          log_prob_z = []  
+        else:
+          word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
+          log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
+          log_prob_z.append(log_prob_z_dict[NEWWORD])
+          log_prob_z = np.asarray(log_prob_z)
 
         # Get the log probabilities of the embeddings
         N = self.utterances.lengths[i]
@@ -393,20 +389,23 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 # This only happens because of backtracking in the forward-backward functions
                 continue  # don't assign a non-embedding (accidently the last embedding)
             if self.fb_type == "standard":
+                # XXX
+                '''
                 if anneal_gibbs_am:
                     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp, log_prob_z=deepcopy(log_prob_z))
                 else:
                     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
+                '''
+                self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
+                # Update word components counts for the alignment model
                 k = self.acoustic_model.components.assignments[i_embed]
                 tw = self.acoustic_model.components.idx_to_word[k]
                 word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
                 log_prob_z_dict = self.alignment_model.update_log_prob_f_given_y(log_prob_z_dict, tw)
                 log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
                 log_prob_z.append(log_prob_z_dict[NEWWORD])
-                log_prob_z = np.asarray(log_prob_z)
-                # self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
+                log_prob_z = np.asarray(log_prob_z)                
                 # print('In HM gibbs sample, assignment[%d], word: ' % i_embed + str(self.acoustic_model.components.assignments[i_embed]) + ' ' + str(self.acoustic_model.components.idx_to_word[self.acoustic_model.components.assignments[i_embed]]))
-                
             elif self.fb_type == "viterbi":
                 self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z)) 
         
@@ -528,10 +527,16 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 utt_order = [i_debug_monitor]
             log_prob = 0
             for i_utt in utt_order:
+                if i_iter > 0:
+                  # Remove embeddings from utterance `i_utt` from the `acoustic_model`
+                  for i_embed in self.utterances.get_segmented_embeds_i(i_utt):
+                    if i_embed == -1:
+                        continue  # don't remove a non-embedding (would accidently remove the last embedding)
+                    self.acoustic_model.components.del_item(i_embed)
+                  self.alignment_model.del_item(i_utt) 
                 log_prob += self.gibbs_sample_i(i_utt, anneal_temp, anneal_gibbs_am)
 
             # Update visual model parameters
-            # self.visual_model.reset()
             for i_utt in utt_order:
                 self.visual_model.update_components(self.v_vec_ids[i_utt], self.alignment_model.post_e_i(i_utt) - self.alignment_model.src_sents[i_utt])
 
@@ -567,7 +572,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         for i, embed_id in enumerate(vec_ids):
             if embed_id == -1:
                 continue 
-            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, deepcopy(log_prob_z))  
+            vec_embed_log_probs[i] = self.acoustic_model.log_marg_i(embed_id, deepcopy(log_prob_z)) 
         return vec_embed_log_probs + self.wip
 
     def calc_p_continue(self):
@@ -637,8 +642,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
       for i in range(self.utterances.D):
         for i_embed in self.utterances.get_segmented_embeds_i(i):
           S += (a_embeddings[i_embed] - m_0) ** 2 / count
-      
-      return FixedVarPrior(S/30., m_0, S/3.)
+       
+      return FixedVarPrior(S/(6.*self.am_M)*D, m_0, S/6.*D)
 
 
     def save_results(self, out_file):
@@ -827,7 +832,6 @@ def forward_backward(vec_embed_log_probs, log_p_continue, N, n_slices_min=0,
             vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut] +
             log_alphas[:t][-n_slices_max:n_slices_min_cut]
             )
-        # print('In HM forward backward, time %d log_p_k: ' % (t) + ' ' + str(log_p_k)) # XXX
         assert not np.isnan(np.sum(log_p_k))
         if np.all(log_p_k == -np.inf):
             logger.debug(
@@ -850,6 +854,9 @@ def forward_backward(vec_embed_log_probs, log_p_continue, N, n_slices_min=0,
             p_k = np.exp(log_p_k_anneal)
         else:
             p_k = np.exp(log_p_k[::-1] - _cython_utils.logsumexp(log_p_k))
+            # print('In HM forward backward, time %d log p_k: ' % (t) + ' ' + str(log_p_k)) # XXX
+            # print('In HM forward backward, time %d _cython_utils.logsumexp(vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut]' % t + ' ' + str(_cython_utils.logsumexp(vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut])))
+            # print('In HM forward backward, time %d p_k: ' % (t) + ' ' + str(p_k)) # XXX
         k = _cython_utils.draw(p_k) + 1
         if n_slices_min_cut is not None:
             k += n_slices_min - 1

@@ -59,7 +59,6 @@ class HierarchicalFBGMM(object):
     T : int
         The temporal dimension of the embedding vectors
     """
-
     def __init__(self, X, prior, alpha, K, hierarchy,
             assignments="rand", covariance_type="full", lms=1.0, 
             p=0.5, M=None):
@@ -274,31 +273,32 @@ class HierarchicalFBGMM(object):
           # Compute log probability of `X[i]` belonging to each component
           # (24.26) in Murphy, p. 843
           log_prob_z = self.lms * (
-            np.log(float(self.alpha)/self.components.K_max + self.components.counts)
+            np.log(float(self.alpha) / self.components.K_max + self.components.counts)
             # - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha - 1.)
             - np.log(_cython_utils.sum_ints(self.components.counts) + self.alpha)
             )
 
         log_prior_z = self.log_prob_z_given_l(log_prob_z, L)
+        # print('In hfbgmm, log_prior_z: ', log_prior_z)
         log_post_pred = self.components.log_post_pred(i)
         # print('embedding %d log_post_pred: ' % i + str(log_post_pred))
         log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
-        # print('In HFBGMM log_marg_i, embedding %d log_post_pred_active: ' % i + str(log_post_pred_active.shape))
-
+        # print('In hfbgmm log_marg_i, log_pred_active_z: ' + str(log_post_pred_active))
         log_likelihood_z = np.nan * np.ones(log_prior_z.shape)
         log_likelihood_z[:-1] = log_post_pred_active 
         log_likelihood_z[-1] = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active) 
-        # log_post_pred_inactive = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active)  
-        # print('In HFBGMM log_marg_i, embedding %d log_post_pred_inactive: ' % i + str(log_post_pred_inactive)) 
-        return _cython_utils.logsumexp(log_prior_z + log_likelihood_z - _cython_utils.logsumexp(log_likelihood_z))
+        # print('In hfbgmm log_marg_i, l=%d, log_likelihood_z: ' % L + str(log_likelihood_z - _cython_utils.logsumexp(log_likelihood_z)))
+        log_post_pred_inactive = self.components.log_post_pred_inactive(log_post_pred, log_post_pred_active)  
+        # print('In HFBGMM log_marg_i, l=%d, log_post_pred_inactive: ' % L + str(log_post_pred_inactive)) 
+        return _cython_utils.logsumexp(log_prior_z + log_likelihood_z -_cython_utils.logsumexp(log_likelihood_z))
     
     def log_prob_z_given_l(self, log_prob_z, l):
         """ 
         Return log probabilities of word components z with length l.
         The last entry of each row stores the log sum probabilities of the inactive components.
         """
-        active_indices = [iw for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))== l]
-        prior_z = self.prior_z(','.join([NEWWORD]*l)) # XXX Assume words of the same length has the same prior
+        active_indices = [iw for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(',')) == l] 
+        prior_z = self.prior_z(','.join([NEWWORD]*l)) 
         log_prior_z = np.log(max(prior_z, EPS)) 
         log_prob_z = log_prob_z[active_indices] # Select a subset of components allowed by the landmark length constraint
         return np.append(log_prob_z, log_prior_z)
@@ -466,7 +466,7 @@ class HierarchicalFBGMM(object):
           # (24.26) in Murphy, p. 843
           log_prob_z = self.lms * (
             np.ones(self.components.K_max)*np.log(
-                float(self.alpha)/self.components.K_max + self.components.counts
+                float(self.alpha) / self.components.K_max + self.components.counts
                 )
             )
         
@@ -488,20 +488,22 @@ class HierarchicalFBGMM(object):
 
         k = utils.draw(prob_z)
         w_indices = []
+        active_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))==L]
         if k != len(prob_z) - 1: # If using existing components, sample under CRP prior the new component assignment for `X[i]`
-          active_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))==L]
           w = active_words[k]
           w_indices = [self.components.phone_to_idx[m] for m in w.split(',')]
-        else: # Otherwise, creating a potentially new component by sampling under uniform prior
+        elif self.components.K < self.components.K_max: # Otherwise, if the number of components do not exceed maximum, creating a potentially new component by taking the MAP assignment for `X[i]`
           for l in range(L):
-            prob_z = np.exp(log_post_pred[l] - logsumexp(log_post_pred[l])) 
-            # Take the MAP assignment for `X[i]`
-            m = utils.draw(prob_z)
-
+            prob_z_l = np.exp(log_post_pred[l] - logsumexp(log_post_pred[l])) 
+            m = np.argmax(prob_z_l)
             # There could be several empty, unactive components at the end
             if m > self.components.M:
                 m = self.components.M
             w_indices.append(m)
+        else: # Otherwise, take the MAP assignment within the existing clusters
+          w = active_words[np.argmax(prob_z[:-1])]
+          w_indices = [self.components.phone_to_idx[m] for m in w.split(',')]
+
         self.components.add_item(i, w_indices)
 
     def map_assign_i(self, i, log_prob_z=[]):
@@ -512,7 +514,31 @@ class HierarchicalFBGMM(object):
         instead of sampling the assignment, the MAP estimate is used.
         """
         L = len(self.hierarchy[i])
-        log_prob_z = np.zeros((L, self.components.M_max))
+        word = []
+        # If the number of components reach maximum, 
+        # take the MAP assignment using existing qualified clusters; 
+        # if no such cluster exists, create a new component
+        if self.components.K == self.components.K_max:
+          if not len(log_prob_z):
+            # Compute log probability of `X[i]` belonging to each component
+            # (24.26) in Murphy, p. 843
+            log_prob_z = self.lms * (
+              np.ones(self.components.K_max)*np.log(
+                  float(self.alpha) / self.components.K_max + self.components.counts
+                  )
+              )
+          log_prob_z = self.log_prob_z_given_l(log_prob_z, L)[:-1]
+          if len(log_prob_z) != 0:            
+            log_post_pred = self.components.log_post_pred(i)
+            log_post_pred_active = self.components.log_post_pred_active(i, log_post_pred) 
+            log_prob_z += log_post_pred_active - logsumexp(log_post_pred_active)
+   
+            active_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))==L]
+            word = [self.components.phone_to_idx[m] for m in active_words[np.argmax(log_prob_z)].split(',')]
+            logger.debug("Adding item " + str(i) + " to acoustic model component " + str(m))
+            self.components.add_item(i, word) 
+            return
+
         # Compute log probability of `X[i]` belonging to each component
         # (24.26) in Murphy, p. 843
         # if not len(log_prob_z):
@@ -523,11 +549,10 @@ class HierarchicalFBGMM(object):
         #         float(self.alpha)/self.components.K_max + self.components.counts
         #         )
         #     )
-
-        # Break the probability into L phone-level probabilities
-        log_prob_z = self.components.log_post_pred(i)
-
-        word = []
+        
+        # If the number of components do not exceed maximum, 
+        # creating a potentially new component by taking the MAP assignment for `X[i]`
+        log_prob_z = self.components.log_post_pred(i) # Break the probability into L phone-level probabilities
         for l in range(L):
           prob_z = np.exp(log_prob_z[l] - logsumexp(log_prob_z[l])) 
           # Take the MAP assignment for `X[i]`
@@ -537,7 +562,7 @@ class HierarchicalFBGMM(object):
           if m > self.components.M:
               m = self.components.M
           word.append(m)
-
+        
         logger.debug("Adding item " + str(i) + " to acoustic model component " + str(m))
         self.components.add_item(i, word) 
 
