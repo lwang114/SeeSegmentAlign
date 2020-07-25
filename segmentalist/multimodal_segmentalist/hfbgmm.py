@@ -461,6 +461,9 @@ class HierarchicalFBGMM(object):
         component stats.
         """
         L = len(self.hierarchy[i])
+        w_indices = []
+        active_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))==L]
+        
         if not len(log_prob_z):
           # Compute log probability of `X[i]` belonging to each component
           # (24.26) in Murphy, p. 843
@@ -487,22 +490,21 @@ class HierarchicalFBGMM(object):
         assert not np.isnan(np.sum(prob_z))
 
         k = utils.draw(prob_z)
-        w_indices = []
-        active_words = [w for w, iw in sorted(self.components.word_to_idx.items(), key=lambda x:x[1]) if len(w.split(','))==L]
-        if k != len(prob_z) - 1: # If using existing components, sample under CRP prior the new component assignment for `X[i]`
+        if k < len(prob_z) - 1: # If using existing components, sample under CRP prior the new component assignment for `X[i]`
           w = active_words[k]
           w_indices = [self.components.phone_to_idx[m] for m in w.split(',')]
-        elif self.components.K < self.components.K_max: # Otherwise, if the number of components do not exceed maximum, creating a potentially new component by taking the MAP assignment for `X[i]`
-          for l in range(L):
-            prob_z_l = np.exp(log_post_pred[l] - logsumexp(log_post_pred[l])) 
-            m = np.argmax(prob_z_l)
-            # There could be several empty, unactive components at the end
-            if m > self.components.M:
-                m = self.components.M
-            w_indices.append(m)
-        else: # Otherwise, take the MAP assignment within the existing clusters
+        # Otherwise, if the number of components reaches maximum, take the MAP assignment using existing qualified clusters; 
+        # if no such cluster exists, create a new component
+        elif self.components.K == self.components.K_max and len(prob_z[:-1]):
           w = active_words[np.argmax(prob_z[:-1])]
-          w_indices = [self.components.phone_to_idx[m] for m in w.split(',')]
+          w_indices = [self.components.phone_to_idx[m] for m in w.split(',')]     
+        else:
+          for l in range(L):
+            m = np.argmax(log_post_pred[l])
+            # There could be several empty, inactive components at the end
+            if m > self.components.M:
+              m = self.components.M
+            w_indices.append(m)
 
         self.components.add_item(i, w_indices)
 
@@ -515,7 +517,7 @@ class HierarchicalFBGMM(object):
         """
         L = len(self.hierarchy[i])
         word = []
-        # If the number of components reach maximum, 
+        # If the number of components reaches maximum, 
         # take the MAP assignment using existing qualified clusters; 
         # if no such cluster exists, create a new component
         if self.components.K == self.components.K_max:
@@ -554,9 +556,8 @@ class HierarchicalFBGMM(object):
         # creating a potentially new component by taking the MAP assignment for `X[i]`
         log_prob_z = self.components.log_post_pred(i) # Break the probability into L phone-level probabilities
         for l in range(L):
-          prob_z = np.exp(log_prob_z[l] - logsumexp(log_prob_z[l])) 
           # Take the MAP assignment for `X[i]`
-          m = np.argmax(prob_z)
+          m = np.argmax(log_prob_z[l])
 
           # There could be several empty, unactive components at the end
           if m > self.components.M:

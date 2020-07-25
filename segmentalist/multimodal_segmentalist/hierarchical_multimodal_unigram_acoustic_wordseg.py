@@ -290,7 +290,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         if fb_type == "standard":
             self.fb_func = forward_backward
         elif fb_type == "viterbi":
-            self.fb_func = forward_backward_viterbi
+            self.fb_func = forward_backward # forward_backward_viterbi
         else:
             assert False, "invalid `fb_type`: " + fb_type
 
@@ -389,29 +389,26 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
                 # This only happens because of backtracking in the forward-backward functions
                 continue  # don't assign a non-embedding (accidently the last embedding)
             if self.fb_type == "standard":
-                # XXX
-                '''
                 if anneal_gibbs_am:
                     self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp, log_prob_z=deepcopy(log_prob_z))
                 else:
-                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z)) 
-                '''
-                self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z))
-                # Update word components counts for the alignment model
-                k = self.acoustic_model.components.assignments[i_embed]
-                tw = self.acoustic_model.components.idx_to_word[k]
-                word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
-                log_prob_z_dict = self.alignment_model.update_log_prob_f_given_y(log_prob_z_dict, tw)
-                log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
-                log_prob_z.append(log_prob_z_dict[NEWWORD])
-                log_prob_z = np.asarray(log_prob_z)                
+                    self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, anneal_temp=1, log_prob_z=deepcopy(log_prob_z))                 
                 # print('In HM gibbs sample, assignment[%d], word: ' % i_embed + str(self.acoustic_model.components.assignments[i_embed]) + ' ' + str(self.acoustic_model.components.idx_to_word[self.acoustic_model.components.assignments[i_embed]]))
             elif self.fb_type == "viterbi":
                 self.acoustic_model.map_assign_i(i_embed, log_prob_z=deepcopy(log_prob_z)) 
+            # Update word components counts for the alignment model
+            k = self.acoustic_model.components.assignments[i_embed]
+            tw = self.acoustic_model.components.idx_to_word[k]
+            word_to_idx = deepcopy(self.acoustic_model.components.word_to_idx) 
+            log_prob_z_dict = self.alignment_model.update_log_prob_f_given_y(log_prob_z_dict, tw)
+            log_prob_z = [log_prob_z_dict[w] for w in sorted(word_to_idx, key=lambda x:word_to_idx[x])]
+            log_prob_z.append(log_prob_z_dict[NEWWORD])
+            log_prob_z = np.asarray(log_prob_z)                
+
         
         # Update alignment parameters 
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))       
-        print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
+        # XXX print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
         self.alignment_model.add_item(i, self.alignment_model.src_sents[i], trg_sent)
 
         # Debug trace
@@ -703,8 +700,8 @@ def process_embeddings(embedding_mats, vec_ids_dict):
     # Loop over utterances
     for i_utt, utt in enumerate(sorted(embedding_mats, key=lambda x:int(x.split('_')[-1]))):
         # XXX
-        if i_utt > 29:
-          break
+        # if i_utt > 29:
+        #   break
         ids_to_utterance_labels.append(utt)
         cur_vec_ids = vec_ids_dict[utt].copy()
 

@@ -107,6 +107,7 @@ parser.add_argument('--am_alpha', type=float, default=1., help='Concentration pa
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
 parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
 parser.add_argument('--anneal', '-a', action='store_true', help='Use annealing for training')
+parser.add_argument('--fb_type', type=str, choices={'standard', 'viterbi'}, default='standard', help='Forward-backward function type for training')
 parser.add_argument('--start_step', type=int, default=0, help='Step to start the experiment')
 
 args = parser.parse_args()
@@ -150,7 +151,7 @@ elif args.dataset == 'mscoco20k':
 
 downsample_rate = 1
 if args.audio_feat_type == 'ctc':
-  args.mfcc_dim = 200 # XXX Hack to get embed() working
+  args.mfcc_dim = 200 
 elif args.audio_feat_type == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
@@ -178,8 +179,8 @@ if start_step == 0:
   # TODO Hierarchical model feature extraction
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    if i_ex > 60:
-      break
+    # if i_ex > 60:
+    #   break
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -351,6 +352,7 @@ if start_step <= 2:
         time_power_term=args.time_power_term,
         init_am_assignments='kmeans', 
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
+        fb_type=args.fb_type,
         am_M=am_M,
         model_name=args.exp_dir+'hierarchical_mbes_gmm'
         ) 
