@@ -13,6 +13,7 @@ import json
 from utterances import Utterances
 import _cython_utils
 from copy import deepcopy
+from sklearn.cluster import KMeans
 
 # TIME_POWER_TERM = 1.6  # with 1.2 instead of 1, we get less words (prefer longer words)
 
@@ -135,13 +136,19 @@ class MultimodalUnigramAcousticWordseg(object):
             n_slices_max=20, min_duration=0, p_boundary_init=0.5,
             beta_sent_boundary=2.0, lms=1., wip=0., fb_type="standard",
             init_am_assignments="rand",
-            time_power_term=1., model_name='mbes_gmm'):
+            time_power_term=1., 
+            am_M = None,
+            model_name='mbes_gmm'):
 
         self.model_name = model_name
         logger.info("Initializing")
 
         # Check parameters
         assert seed_assignments_dict is None or seed_boundaries_dict is not None
+        
+        if am_M is None:
+          am_M = am_K
+        self.am_M = am_M
 
         # Initialize simple attributes
         self.n_slices_min = n_slices_min
@@ -250,6 +257,14 @@ class MultimodalUnigramAcousticWordseg(object):
             # Assign the embeddings one-by-one
             for i_embed in init_embeds:
                 self.acoustic_model.gibbs_sample_inside_loop_i(i_embed, log_prob_z=[])
+        elif init_am_assignments == "kmeans":
+            kmeans = KMeans(n_clusters=am_M).fit(a_embeddings[init_embeds])
+            init_embeds_assignments = kmeans.labels_
+            assignments[init_embeds] = init_embeds_assignments
+            # Initialize `acoustic_model`
+            self.acoustic_model = am_class(
+                a_embeddings, am_param_prior, am_alpha, am_K,
+                assignments=assignments, covariance_type=covariance_type, lms=lms)
         else:
             assert False, "invalid value for `init_am_assignments`: " + init_am_assignments
         
@@ -267,6 +282,7 @@ class MultimodalUnigramAcousticWordseg(object):
 
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
+        self.alignment_model.update_counts()
 
     def set_fb_type(self, fb_type):
         self.fb_type = fb_type
@@ -303,8 +319,8 @@ class MultimodalUnigramAcousticWordseg(object):
             K_prev = self.acoustic_model.components.K
             k_i = self.acoustic_model.components.assignments[i_embed]
             self.acoustic_model.components.del_item(i_embed)
-            # If a cluster is deleted, move counts of the replacing cluster to the positions of the counts for the replaced cluster (which ideally are zeros) 
-            if self.acoustic_model.components.K != K_prev:
+            # If a cluster is deleted, move counts of the replacing cluster to the positions of the counts for the replaced cluster (which ideally are zeros)  
+            if self.acoustic_model.components.K != K_prev: 
               self.alignment_model.reset_i(i) 
               self.alignment_model.move_counts(K_prev-1, k_i)
 
@@ -391,7 +407,7 @@ class MultimodalUnigramAcousticWordseg(object):
         # Update alignment parameters
         src_sent = np.asarray([self.visual_model.prob_z_i(i_embed) for i_embed in self.v_vec_ids[i]])
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))
-        # print('example, trg_sent[:10]', i, trg_sent[:10])
+        # print('example, trg_sent: ' + str(i) + str(trg_sent))
         self.alignment_model.update_counts_i(i, src_sent, trg_sent)
 
         # Debug trace
@@ -552,8 +568,8 @@ class MultimodalUnigramAcousticWordseg(object):
             if np.isnan(durations[i]):
                 vec_embed_log_probs[i] = -np.inf
             else: 
-                # vec_embed_log_probs[i] *= durations[i]**self.time_power_term 
-                vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution 
+                vec_embed_log_probs[i] *= durations[i]**self.time_power_term 
+                # XXX vec_embed_log_probs[i] += int(durations[i] / 10) * np.log(m_poisson) - math.lgamma(int(durations[i] / 10) + 1) - m_poisson # Poisson length distribution 
 
         # # Scale log marginals by number of frames
         # N = int(-1 + np.sqrt(1 + 4 * 2 * len(vec_ids))) / 2  # see `__init__`

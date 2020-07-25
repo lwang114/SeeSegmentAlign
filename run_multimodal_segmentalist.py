@@ -179,8 +179,8 @@ if start_step == 0:
   # TODO Hierarchical model feature extraction
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    # if i_ex > 60:
-    #   break
+    if i_ex > 29:
+      break
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -320,8 +320,10 @@ if start_step <= 2:
         seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
         p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
         time_power_term=args.time_power_term,
-        init_am_assignments='one-by-one',
+        # init_am_assignments='one-by-one',
+        init_am_assignments='kmeans',
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
+        am_M=args.am_M,
         model_name=args.exp_dir+'mbes_gmm'
         ) # XXX init_am_assignments='one-by-one',
     elif args.segmenter_class == 'mixture':

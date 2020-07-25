@@ -202,8 +202,8 @@ class MixtureAligner(object):
     self.src_counts[i] = 0.
 
   def move_counts(self, k1, k2):
-    self.src2trg_counts[:, k2] = self.src2trg_counts[:, k1]
-    self.src2trg_counts[:, k1] = 0.
+    self.src2trg_counts[:, :, k2] = self.src2trg_counts[:, :, k1]
+    self.src2trg_counts[:, :, k1] = 0.
 
 def to_one_hot(sent, K):
   if len(sent.shape) < 2:
