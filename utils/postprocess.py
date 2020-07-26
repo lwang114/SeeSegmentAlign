@@ -8,10 +8,11 @@ import librosa
 from PIL import Image
 import argparse
 
-DEBUG = False
+DEBUG = True
 END = '</s>'
 NULL = 'NULL'
 
+logger = logging.getLogger(__name__)
 if os.path.exists("*.log"):
   os.system("rm *.log")
 
@@ -43,8 +44,8 @@ def alignment_to_cluster(ali_file, out_file='cluster.json'):
     for w_i, a_i in zip(sent, alignment):
       if a_i >= len(concepts):
         if DEBUG:
-          print('alignment index: ', align_info['index'])
-          print('a_i out of range: ', a_i, concepts)
+          logger.info('alignment index: ', align_info['index'])
+          logger.info('a_i out of range: ', a_i, concepts)
         a_i = 0
       clusters[concepts[a_i]].append(w_i)
       clusters[concepts[a_i]] = list(set(clusters[concepts[a_i]]))
@@ -149,6 +150,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
                                    word_class_file='words.class',
                                    split_file = None,
                                    landmark_file=None, 
+                                   hierarchical = False,
                                    include_null = False):
   f = open(phone_corpus, 'r')
   a_corpus = []
@@ -186,9 +188,12 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
           image_concepts[i] = c
           i_prev = i
       print(image_concepts)
+    elif hierarchical:
+      image_concepts = [c for cc in align_info['image_concepts'] for c in cc.split(',')]
     else:
       image_concepts = align_info['image_concepts']
-    
+      
+
     # print(pair_id) 
     prev_align_idx = -1
     start = 0
@@ -201,28 +206,45 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
         last_align_idx = alignment[-1]
         alignment.extend([last_align_idx]*gap)
         # print(len(a_sent), len(alignment))
+     
     for t, (align_idx, phn) in enumerate(zip(alignment, a_sent)):
       if t == 0:
         prev_align_idx = align_idx
       
-      if prev_align_idx != align_idx:
+      if prev_align_idx != align_idx: # If a new index is seen, store the current boundary times; otherwise, the the index is the end of the alignment, also store the current boundary times 
         if not include_null and prev_align_idx == 0:
           prev_align_idx = align_idx
           start = t
           continue
-        if image_concepts[prev_align_idx] not in word_units:
-          word_units[image_concepts[prev_align_idx]] = ['%s %d %d\n' % (pair_id, start, t)]
+
+        if hierarchical:
+          cur_concept = ','.join(image_concepts[start:t])
         else:
-          word_units[image_concepts[prev_align_idx]].append('%s %d %d\n' % (pair_id, start, t))
+          cur_concept = image_concepts[prev_align_idx] 
+
+        if cur_concept not in word_units:
+          word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
+        else: 
+          word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
+          
         prev_align_idx = align_idx
         start = t
       elif t == len(alignment) - 1:
+        if DEBUG:
+          logger.info('prev_align_idx, len(image_concepts): ' + str(prev_align_idx) + ' ' + str(len(image_concepts)))
+
         if not include_null and prev_align_idx == 0:
           continue
-        if image_concepts[prev_align_idx] not in word_units:
-          word_units[image_concepts[prev_align_idx]] = ['%s %d %d\n' % (pair_id, start, t + 1)]
+        
+        if hierarchical:
+          cur_concept = ','.join(image_concepts[start:t])
         else:
-          word_units[image_concepts[prev_align_idx]].append('%s %d %d\n' % (pair_id, start, t + 1))
+          cur_concept = image_concepts[prev_align_idx] 
+ 
+        if cur_concept not in word_units:
+          word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
+        else: 
+          word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
     
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):
