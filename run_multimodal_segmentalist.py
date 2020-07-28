@@ -172,15 +172,22 @@ if start_step == 0:
     landmark_ids = sorted(landmarks_dict, key=lambda x:int(x.split('_')[-1]))
     if landmarks_dict[landmark_ids[0]][0] > 0: # If the landmarks do not start with frame 0, append 0 to the landmarks
       landmarks_dict = {i_lm: np.append([0], landmarks_dict[i_lm]) for i_lm in landmark_ids}
+    train_indices = [int(landmark_id.split('_')[-1]) for landmark_id in landmark_ids]
   else:
     landmark_ids = []
-  print(len(list(audio_feats.keys())))
+    n_ex = len(list(audio_feats.keys()))
+    train_indices = list(range(n_ex))
+  print('Number of examples=%d, number of training examples=%d' % (len(list(audio_feats.keys())), len(train_indices)))
 
-  # TODO Hierarchical model feature extraction
+  i_train = -1
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    if i_ex > 29:
-      break
+    # if i_ex > 29:
+    #   break
+    if not i_ex in train_indices:
+      continue
+    i_train += 1
+
     feat_mat = audio_feats[feat_id] 
     if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and audio_feature_file.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -189,15 +196,14 @@ if start_step == 0:
       feat_mat = feat_mat[:2000, :args.mfcc_dim]
     else:
       feat_mat = feat_mat[:, :args.mfcc_dim]
-    
     # feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
 
     if not args.landmarks_file:
       n_slices = feat_mat.shape[0]
       landmarks_dict[feat_id] = np.arange(n_slices)
       landmark_ids.append(feat_id)
-    else:   
-      n_slices = len(landmarks_dict[landmark_ids[i_ex]]) - 1   
+    else:
+      n_slices = len(landmarks_dict[landmark_ids[i_train]]) - 1   
     feat_dim = args.mfcc_dim 
     assert args.embed_dim % feat_dim == 0   
     embed_mat = np.zeros(((args.n_slices_max - max(args.n_slices_min, 1) + 1)*n_slices, args.embed_dim))
@@ -213,15 +219,15 @@ if start_step == 0:
             i = t*(t - 1)/2
             vec_ids[i + cur_start] = i_embed
             n_down_slices = args.embed_dim / feat_dim
-            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_ex]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_ex]][cur_end] / downsample_rate) 
+            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_train]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_train]][cur_end] / downsample_rate) 
             if args.am_class != 'hfbgmm' or cur_end - cur_start == 1:
               embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
 
-    vec_ids_dict[landmark_ids[i_ex]] = vec_ids
-    embedding_mats[landmark_ids[i_ex]] = embed_mat[:i_embed]
-    durations_dict[landmark_ids[i_ex]] = durations 
+    vec_ids_dict[landmark_ids[i_train]] = vec_ids
+    embedding_mats[landmark_ids[i_train]] = embed_mat[:i_embed]
+    durations_dict[landmark_ids[i_train]] = durations 
 
   np.savez(args.exp_dir+"embedding_mats.npz", **embedding_mats)
   np.savez(args.exp_dir+"a_vec_ids_dict.npz", **vec_ids_dict)
