@@ -22,7 +22,7 @@ parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--momentum', type=float, default=0.9)
 parser.add_argument('--weight_decay', type=float, default=0.1)
 parser.add_argument('--lr_decay', type=int, default=10, help='Divide the learning rate by 10 every lr_decay epochs')
-parser.add_argument('--dataset', default='mscoco_130k', choices=['mscoco_130k', 'mscoco_2k', 'mscoco_train', 'cifar'], help='Data set used for training the model')
+parser.add_argument('--dataset', default='mscoco_130k', choices=['mscoco_130k', 'mscoco_2k', 'mscoco_train', 'mscoco_imbalanced', 'cifar'], help='Data set used for training the model')
 parser.add_argument('--n_class', type=int, default=10)
 parser.add_argument('--n_epoch', type=int, default=20)
 parser.add_argument('--class2id_file', type=str, default=None)
@@ -173,6 +173,9 @@ if 1 in tasks:
     print(args.n_class)
     test_label_file = '../data/mscoco_train_bboxes.txt'
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform) 
+  elif args.dataset == 'mscoco_imbalanced':
+    test_label_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_imbalanced_label_bboxes.txt'
+    testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform) 
 
   test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
   
@@ -247,7 +250,7 @@ if 3 in tasks:
     np.savez(new_image_feat_file, **new_image_feats)
     with open(new_image_label_file, 'w') as f:
       f.write('\n'.join(new_image_labels))
-  else args.dataset == 'mscoco_imbalanced':
+  elif args.dataset == 'mscoco_imbalanced':
     data_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
     image_feats = np.load(image_feat_file)
     with open(data_file, 'r') as f:
