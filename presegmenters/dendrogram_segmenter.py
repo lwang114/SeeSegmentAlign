@@ -88,11 +88,13 @@ if __name__ == '__main__':
   L = 5
   audio_feat_file = datapath + 'mscoco2k_mfcc_unsegmented.npz'
   landmark_file = datapath + 'mscoco2k_gold_landmarks_dict.npz'
-  gt_boundaries = np.load(landmark_file)['arr_0']
+  gt_boundaries = np.load(landmark_file)
+  landmarks = {}
   print('Groundtruth boundaries: ' + str(gt_boundaries))
-  X = np.load(audio_feat_file)['arr_0']
-  segmenter = DendrogramSegmenter(X, metric='cosine')
-  dendrogram = segmenter.segment(L=L)
-  for l in range(L):
-    boundaries = np.nonzero(dendrogram[l])[0]
-    print('boundaries at level %d: ' % l + str(boundaries))
+  for i in range(len(list(gt_boundaries.keys()))):
+    X = np.load(audio_feat_file)['arr_%d' % i]
+    segmenter = DendrogramSegmenter(X, metric='cosine')
+    dendrogram = segmenter.segment(L=L)
+    landmarks['arr_%d' % i] = np.nonzero(dendrogram[-1])[0]
+  
+  np.savez('mscoco2k_subphone_landmarks.npz', **landmarks)

@@ -724,36 +724,54 @@ class MSCOCO_Preprocessor():
       with open(out_file_prefix+'_test.txt', 'w') as f:
         for i in test_indices:
           f.write(labels[i]) 
- 
-  # TODO Make this general enough to deal with both synthetic and real data 
-  def image_bboxes_json_to_text(self, json_file, out_file_prefix='mscoco_image_bboxes'):
+  
+  def image_bboxes_json_to_text(self, json_file, out_file_prefix='mscoco_image_bboxes', imgid2bbox_file=None, dataset_type='natural'):
     with open(json_file, 'r') as f:
       json_info = json.load(f)
 
     bboxes = []
     # XXX
-    for ex, data_info in enumerate(json_info): 
-      image_id = data_info['image_id']
-      print('ex %d, image id %s' % (ex, image_id))
-      label_bboxes = data_info['bboxes']
-      label_bboxes_in_class = {}
-      for label_bbox in label_bboxes:
-        c, x, y, w, h = label_bbox
-        if c not in label_bboxes_in_class:
-          label_bboxes_in_class[c] = [x, y, w, h]
-        else: # Merge boxes for the same class
-          if x < label_bboxes_in_class[c][0]:
-            label_bboxes_in_class[c][0] = x
-          if y < label_bboxes_in_class[c][1]:
-            label_bboxes_in_class[c][1] = y
-          if x + w > label_bboxes_in_class[c][0] + label_bboxes_in_class[c][2]:
-            label_bboxes_in_class[c][2] = x + w - label_bboxes_in_class[c][0]
-          if y + h > label_bboxes_in_class[c][1] + label_bboxes_in_class[c][3]:
-            label_bboxes_in_class[c][3] = y + h - label_bboxes_in_class[c][1]
-        
-      for c in label_bboxes_in_class: 
-        x, y, w, h = label_bboxes_in_class[c]
-        bboxes.append('%s %s %d %d %d %d\n' % (image_id, c, x, y, w, h))
+    if dataset_type == 'synthetic':
+      assert not (imgid2bbox_file is None)
+      with open(concept2imgid_file, 'r') as f:
+        imgid2bbox = json.load(f) 
+
+      if isinstance(json_info, list):
+        json_keys = list(range(len(json_info)))
+      else:
+        json_keys = sorted(json_info, key=lambda x:int(x.split('_')[-1]))
+
+      for ex, json_key in enumerate(json_keys): 
+        logger.info('json_key: ' + str(json_key))
+        data_info = json_info[json_key]
+        for data_id in data_info['data_ids']:
+          image_id = data_id[0]
+          label_bbox = imgid2bbox[image_id] 
+          c, x, y, w, h = label_bbox
+          bboxes.append('%s %s %d %d %d %d\n' % (image_id, c, x, y, w, h))
+    else:
+      for ex, data_info in enumerate(json_info):
+        image_id = data_info['image_id']
+        print('ex %d, image id %s' % (ex, image_id))
+        label_bboxes = data_info['bboxes']
+        label_bboxes_in_class = {}
+        for label_bbox in label_bboxes:
+          c, x, y, w, h = label_bbox
+          if c not in label_bboxes_in_class:
+            label_bboxes_in_class[c] = [x, y, w, h]
+          else: # Merge boxes for the same class
+            if x < label_bboxes_in_class[c][0]:
+              label_bboxes_in_class[c][0] = x
+            if y < label_bboxes_in_class[c][1]:
+              label_bboxes_in_class[c][1] = y
+            if x + w > label_bboxes_in_class[c][0] + label_bboxes_in_class[c][2]:
+              label_bboxes_in_class[c][2] = x + w - label_bboxes_in_class[c][0]
+            if y + h > label_bboxes_in_class[c][1] + label_bboxes_in_class[c][3]:
+              label_bboxes_in_class[c][3] = y + h - label_bboxes_in_class[c][1]
+          
+        for c in label_bboxes_in_class: 
+          x, y, w, h = label_bboxes_in_class[c]
+          bboxes.append('%s %s %d %d %d %d\n' % (image_id, c, x, y, w, h))
 
     with open(out_file_prefix+'.txt', 'w') as f:
       f.write(''.join(bboxes))
@@ -893,7 +911,7 @@ def is_nonspeech(phn):
   return 1
 
 if __name__ == '__main__':
-  tasks = [0, 1]
+  tasks = [9]
   instance_file = 'annotations/instances_val2014.json'
   caption_file = 'annotations/captions_val2014.json' 
   speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
@@ -953,3 +971,7 @@ if __name__ == '__main__':
     speech_api_val_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
     json_file = '../data/dataset_coco.json'
     preproc.extract_phone_caption_from_karpathy_split(speech_api_train_file, speech_api_val_file, json_file, out_file_prefix='mscoco_phone_caption')
+  if 9 in tasks:
+    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
+    imgid2bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_imgid2bbox.json'
+    preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', dataset_type='synthetic', imgid2bbox_file=imgid2bbox_file)

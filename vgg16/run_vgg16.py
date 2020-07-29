@@ -210,38 +210,61 @@ if 2 in tasks:
         weight_dict['arr_'+str(i)] = p.cpu().detach().numpy()
         i += 1
     np.savez('%s/classifier_weights.npz' % args.exp_dir, **weight_dict)
+
 #------------------------------#
 # Image Feature Postprocessing #
 #------------------------------#
+# TODO Make this work for both synthetic and natural dataset
 if 3 in tasks:
-  test_region_file = '../data/mscoco_train_bboxes.txt'
   image_feat_file = args.exp_dir + 'embed1_all.npz'
   new_image_feat_file = args.exp_dir + 'embed1_all_processed.npz'
-  new_image_label_file = args.exp_dir + 'image_labels.txt'
+  if args.dataset == 'mscoco_train':
+    test_region_file = '../data/mscoco_train_bboxes.txt'
+    new_image_label_file = args.exp_dir + 'image_labels.txt'
 
-  image_feats = np.load(image_feat_file)
-  f = open(test_region_file, 'r')
-  new_image_feats = {}
-  new_image_labels = []
-  i_old = 0
-  i_new = 0
-  prev_img_id = ''
-  for line in f:
-    img_id = line.split()[0]
-    label = line.split()[-1]
-    if img_id != prev_img_id:
-      new_image_feats['arr_' + str(i_new)] = []
-      new_image_labels.append('')
-      i_new += 1
-      prev_img_id = img_id
-    feat_id = 'arr_' + str(i_old)
-    image_feat = image_feats[feat_id]
-    new_image_feats['arr_' + str(i_new - 1)].append(image_feat)    
-    new_image_labels[i_new - 1] += label + ' '
-    i_old += 1
+    image_feats = np.load(image_feat_file)
+    f = open(test_region_file, 'r')
+    new_image_feats = {}
+    new_image_labels = []
+    i_old = 0
+    i_new = 0
+    prev_img_id = ''
+    for line in f:
+      img_id = line.split()[0]
+      label = line.split()[-1]
+      if img_id != prev_img_id:
+        new_image_feats['arr_' + str(i_new)] = []
+        new_image_labels.append('')
+        i_new += 1
+        prev_img_id = img_id
+      feat_id = 'arr_' + str(i_old)
+      image_feat = image_feats[feat_id]
+      new_image_feats['arr_' + str(i_new - 1)].append(image_feat)    
+      new_image_labels[i_new - 1] += label + ' '
+      i_old += 1
+    f.close()
+    
+    np.savez(new_image_feat_file, **new_image_feats)
+    with open(new_image_label_file, 'w') as f:
+      f.write('\n'.join(new_image_labels))
+  else args.dataset == 'mscoco_imbalanced':
+    data_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
+    image_feats = np.load(image_feat_file)
+    with open(data_file, 'r') as f:
+      data_info = json.load(f)
+    
+    new_image_feats = {}
+    if isinstance(data_info, dict):
+      data_keys = sorted(data_info, key=lambda x:int(x.split('_')[-1]))
+    else:
+      data_keys = list(range(len(data_info)))
 
-  f.close()
-  
-  np.savez(new_image_feat_file, **new_image_feats)
-  with open(new_image_label_file, 'w') as f:
-    f.write('\n'.join(new_image_labels))
+    i_image = 0 
+    for data_key in data_keys:
+      datum_info = data_info[data_key]
+      image_ids = []
+      for _ in datum_info:
+        image_ids.append(i_image)
+        i_image += 1
+      new_image_feats[data_key] = np.asarray([image_feats[image_id] for image_id in image_ids])
+    np.savez(new_image_feat_file, **new_image_feats) 
