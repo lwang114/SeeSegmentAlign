@@ -12,9 +12,14 @@ from mscoco_region_dataset import *
 import json
 import numpy as np
 import random
+import logging
 
+DEBUG = True
 random.seed(1)
 np.random.seed(1)
+
+logging.basicConfig(filename='run_vgg.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--lr', type=float, default=0.001)
@@ -63,6 +68,9 @@ elif args.dataset == 'mscoco_train':
   # with open(args.class2id_file, 'r') as f:
   #   class2idx = json.load(f)
   args.n_class = 80 # XXX len(class2idx.keys())
+elif args.dataset == 'mscoco_imbalanced':
+  data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
+  args.n_class = 80
 
 #------------------#
 # Network Training #
@@ -253,12 +261,14 @@ if 3 in tasks:
   elif args.dataset == 'mscoco_imbalanced':
     data_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
     image_feats = np.load(image_feat_file)
-    with open(data_file, 'r') as f:
+    with open(data_info_file, 'r') as f:
       data_info = json.load(f)
     
     new_image_feats = {}
     if isinstance(data_info, dict):
       data_keys = sorted(data_info, key=lambda x:int(x.split('_')[-1]))
+      if DEBUG:
+        logger.info('data_keys[:10]: ' + str(data_keys[:10]))
     else:
       data_keys = list(range(len(data_info)))
 
@@ -267,7 +277,7 @@ if 3 in tasks:
       datum_info = data_info[data_key]
       image_ids = []
       for _ in datum_info:
-        image_ids.append(i_image)
+        image_ids.append('arr_' + str(i_image))
         i_image += 1
       new_image_feats[data_key] = np.asarray([image_feats[image_id] for image_id in image_ids])
     np.savez(new_image_feat_file, **new_image_feats) 
