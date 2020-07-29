@@ -1,13 +1,15 @@
 import numpy as np
-print(np.__version__)
 import librosa
 import json
 import os
 import scipy.io as io
 import scipy.signal as signal
+import logging
 
 ORDER = 'C'
 NONPHONE = ['#']
+DEBUG = True
+logger = logging.getLogger(__name__)
 class FlickrFeaturePreprocessor:
   def __init__(self, audio_info_file, audio_dir, utt2spk_file):
     with open(audio_info_file, 'r') as f:
@@ -117,6 +119,7 @@ class FlickrFeaturePreprocessor:
     feat_npz = np.load(feat_file)
     segment_npz = np.load(segmentation_file)
     segment_ids = [k for k in sorted(segment_npz, key=lambda x:int(x.split('_')[-1]))]
+    # XXX
     with open(alignment_file, 'r') as f:
       align_info = json.load(f)
     align_info = align_info 
@@ -147,6 +150,9 @@ class FlickrFeaturePreprocessor:
   def get_concept_embeds(self, x, embed_dim, frame_dim=12):
     embeddings = []
     for seg in x:
+      #print("seg.shape", seg.shape)
+      #print("seg:", segmentation[i_w+1])
+      #print("embed of seg:", self.embed(seg))
       embeddings.append(embed(seg, embed_dim, frame_dim=frame_dim))  
     return np.array(embeddings)
      
@@ -218,12 +224,17 @@ class MSCOCOAudioFeaturePreprocessor:
     dct_type = feat_configs.get("dct_type", 3)
     is_subword = feat_configs.get('is_subword', True)
     is_segmented = feat_configs.get('is_segmented', True)
-    compute_cmvn = feat_configs.get("compute_cmvn", False)
-    hop_length = -1
-    n_fft = -1    
+    compute_cmvn = feat_configs.get("compute_cmvn", True) 
+    sr = feat_configs.get('sample_rate', 16000)
+    hop_length = int(skip_ms * sr / 1000)
+    n_fft = int(window_ms * sr / 1000)
 
     for i, audio_info_i in enumerate(self.audio_info):
       index = 'arr_'+str(i)
+      # XXX
+      # if i != 55:
+      #   continue
+      logger.info(index)
       data_ids = audio_info_i["data_ids"]
       if len(data_ids) == 0:
         continue
@@ -233,18 +244,20 @@ class MSCOCOAudioFeaturePreprocessor:
       for data_id in data_ids:
         audio_id = '_'.join(data_id[1].split('_')[:-1])
         spk = data_id[1].split('_')[2]
-        sr, y = io.wavfile.read(self.audio_dir + 'wav/' + audio_id+'.wav') 
+        sr, y = io.wavfile.read(self.audio_dir + 'wav/' + audio_id + '.wav') 
         if is_subword:
           for phn_info in data_id[2]:        
+            # print(phn_info)
             phn = phn_info[0]
             if phn in NONPHONE:
-              print('Ignore %s in example %d' % (phn, i))
+              logger.info('Ignore %s in example %d' % (phn, i))
               continue
             start_ms, end_ms = phn_info[1], phn_info[2]
             start = int(start_ms * sr / 1000.)
             end = int(end_ms * sr / 1000.)
             hop_length = int(skip_ms * sr / 1000)
             n_fft = int(window_ms * sr / 1000)
+
             y = preemphasis(y, coeff)
             seg = y[start:end]
             sent.append(seg)
@@ -256,19 +269,17 @@ class MSCOCOAudioFeaturePreprocessor:
           spk = data_id[-1]
           start = int(start_ms * sr / 1000.)
           end = int(end_ms * sr / 1000.)
+          hop_length = int(skip_ms * sr / 1000)
+          n_fft = int(window_ms * sr / 1000)
 
           y = preemphasis(y, coeff)
-          y = y[start:end]
-          mfcc = librosa.feature.mfcc(y, sr=sr, n_mfcc=n_mfcc, dct_type=dct_type)
-          if order >= 1:
-            mfcc_delta = librosa.feature.delta(mfcc, mode='nearest')
-            mfcc = np.concatenate([mfcc, mfcc_delta], axis=0)
-          if order >= 2:
-            mfcc_delta2 = librosa.feature.delta(mfcc[:n_mfcc], order=2, mode='nearest')
-            mfcc = np.concatenate([mfcc, mfcc_delta2], axis=0)
- 
-          self.mfccs[index].append(mfcc.T)
-        
+          seg = y[start:end]
+          sent.append(seg)
+
+          start_sent = start_sent + end - start            
+          segmentation.append([start_sent, start_sent + max(end - start, hop_length) + 1])
+
+        # mfcc = (mfcc - mfcc.mean()) / np.std(mfcc)  
         if spk in self.spk_counts:
           self.spk_counts[spk] += 1
         else:
@@ -280,6 +291,8 @@ class MSCOCOAudioFeaturePreprocessor:
           self.utt2spk[index] = [spk]
   
       sent = np.concatenate(sent)
+      if DEBUG:
+        logger.info('sent.shape, hop_length, n_mfcc: ' + str(sent.shape) + ' ' + str(hop_length) + ' ' + str(n_mfcc))
       mfcc = librosa.feature.mfcc(sent, sr=sr, n_mfcc=n_mfcc, dct_type=dct_type, n_fft=n_fft, hop_length=hop_length)
       if order >= 1:
         mfcc_delta = librosa.feature.delta(mfcc, mode='nearest')
@@ -302,12 +315,13 @@ class MSCOCOAudioFeaturePreprocessor:
       # mfcc = (mfcc - mfcc.mean()) / max(np.std(mfcc), EPS)
 
     np.savez(out_dir + "mscoco_mfcc.npz", **self.mfccs)
-     
+    '''
+    # XXX
     self.mfccs = np.load(out_dir + 'mscoco_mfcc.npz', encoding='latin1')
-    if compute_cmvn:
-      self.cmvn(feat_configs, out_dir)
-      np.savez(out_dir + "mscoco_mfcc_cmvn.npz", **self.mfccs)     
-    
+    # if compute_cmvn:
+    #  self.cmvn(feat_configs, out_dir)
+    # np.savez(out_dir + "mscoco_mfcc_cmvn.npz", **self.mfccs)     
+    '''
   
   def create_gold_phone_landmarks(self, feat_configs, output_file='mscoco_phone_landmarks'):
     frame_ms = feat_configs.get('skip_ms', 10)
@@ -316,6 +330,10 @@ class MSCOCOAudioFeaturePreprocessor:
     landmarks = {}
     for i, datum_info in enumerate(self.audio_info):
       index = 'arr_' + str(i)
+      # XXX
+      # if i != 55:
+      #   continue
+      # print(index)
       data_ids = datum_info['data_ids']
       if len(data_ids) == 0:
         continue 
@@ -351,6 +369,10 @@ class MSCOCOAudioFeaturePreprocessor:
     landmarks = {}
     for i, datum_info in enumerate(self.audio_info):
       index = 'arr_' + str(i)
+      # XXX
+      # if i != 55:
+      #   continue
+      # print(index)
       data_ids = datum_info['data_ids']
       if len(data_ids) == 0:
         continue 
@@ -386,6 +408,10 @@ class MSCOCOAudioFeaturePreprocessor:
     
     segmentations = []
     for i, datum_info in enumerate(self.audio_info):
+      # XXX
+      # if i <= 2530:
+      #   continue
+      # print(i)
       data_ids = datum_info['data_ids']
       segmentation_i = []
       start_sent = 0
@@ -400,6 +426,7 @@ class MSCOCOAudioFeaturePreprocessor:
             start = int(start_ms * sr / 1000.)
             end = int(end_ms * sr / 1000.)
 
+            # start_ms, end_ms = phn_info[1], phn_info[2]
             end_sent = start_sent + max(end - start, hop_length)
             segmentation_i.append([int(start_sent / hop_length), int(end_sent / hop_length)])
             start_sent = end_sent
@@ -417,6 +444,7 @@ class MSCOCOAudioFeaturePreprocessor:
     self.spk_means = {spk: np.zeros((feat_dim,)) for spk in self.spk_counts}
     self.spk_vars = {spk: np.zeros((feat_dim,)) for spk in self.spk_counts}
 
+    # XXX
     for i, audio_info_i in enumerate(self.audio_info):
       data_ids = audio_info_i["data_ids"]
       feat_id = 'arr_' + str(i)
@@ -451,7 +479,8 @@ class MSCOCOAudioFeaturePreprocessor:
     for seg in x:
       if seg.shape[0] == 0:
         print("Empty segment:", seg.shape)
-
+      #print("seg:", segmentation[i_w+1])
+      #print("embed of seg:", self.embed(seg))
       embeddings.append(embed(seg, embed_dim, frame_dim=frame_dim))  
     return np.array(embeddings)
     
@@ -476,7 +505,7 @@ def preemphasis(signal, coeff=0.97):
   return np.append(signal[0], signal[1:] - coeff * signal[:-1])
 
 def embed(y, embed_dim, frame_dim=None, technique="resample"): 
-  assert embed_dim % self.audio_feat_dim == 0
+  #assert embed_dim % self.audio_feat_dim == 0
   if frame_dim: 
     y = y[:, :frame_dim].T
   else:
@@ -486,7 +515,11 @@ def embed(y, embed_dim, frame_dim=None, technique="resample"):
   n = int(embed_dim / frame_dim)
   if y.shape[0] == 1: 
     y_new = np.repeat(y, n)   
-        
+
+  #if y.shape[0] <= n:
+  #  technique = "interpolate" 
+       
+  #print(embed_dim / frame_dim)
   if technique == "interpolate":
       x = np.arange(y.shape[1])
       f = interpolate.interp1d(x, y, kind="linear")
@@ -502,16 +535,16 @@ def embed(y, embed_dim, frame_dim=None, technique="resample"):
           ).flatten(ORDER) #.flatten("F")
   return y_new
  
-if __name__ == "__main__":
-  tasks = [3]
-  
+if __name__ == "__main__": 
+  logging.basicConfig(filename='audio_feat_ext.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
+  tasks = [1] 
   if 0 in tasks:
     data_dir = "../data/flickr30k/audio_level/"
     audio_info_file = data_dir + "flickr30k_gold_alignment.json"
-    audio_dir = "/home/lwang114/data/flickr_audio/"
+    audio_dir = "/home/lwang114/data/flickr_audio/"#"/ws/ifp-53_2/hasegawa/lwang114/data/flickr_audio/"
     utt2spk_file = audio_dir + "wav2spk.txt"
-    feat_mat_file = data_dir + "flickr_embeddings.mat" 
-    feat_npz_file = data_dir + "flickr_embeddings.npz" 
+    feat_mat_file = data_dir + "flickr_embeddings.mat" #"flickr_mfcc_cmvn_htk.mat"
+    feat_npz_file = data_dir + "flickr_embeddings.npz" #"flickr_mfcc_cmvn_htk.npz"
     utterance_ids_file = data_dir + "ids_to_utterance_labels.json"
     feat_configs = {} 
     out_dir = data_dir
@@ -520,21 +553,22 @@ if __name__ == "__main__":
     feat_extractor.convertMatToNpz(feat_mat_file, feat_npz_file, utterance_ids_file)
 
   if 1 in tasks:
-    audio_info_file = '../data/mscoco2k_phone_info.json' 
+    audio_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_phone_power_law_info.json' 
     audio_dir = '/home/lwang114/data/mscoco/audio/val2014/'
     feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
-    feat_extractor.create_gold_word_landmarks(feat_configs={}, output_file='mscoco2k_gold_word_landmarks')
+    feat_extractor.create_gold_phone_landmarks(feat_configs={}, output_file='mscoco_imbalanced_gold_phone_landmarks')
+    # feat_extractor.create_gold_word_landmarks(feat_configs={}, output_file='mscoco2k_gold_word_landmarks')
+    # feat_extractor.create_gold_word_segmentation(feat_configs={'level':'frame'}, output_file='mscoco20k_gold_word_segmentation')
+
+    # data_info_file = '../data/mscoco/mscoco20k_phone_info.json'
+    # feat_extractor.create_gold_word_segmentation(data_info_file, level='frame', output_file='mscoco20k_gold_word_segmentation')
     # feat_extractor.create_gold_phone_landmarks(data_info_file, output_file='mscoco20k_gold_phone_landmarks')
   if 2 in tasks:
     feat_extractor.extract_kamper_embeddings('../data/TIMIT/TIMIT_subset_mfcc.npz', embed_dim=140, file_prefix='TIMIT_subset_kamper_embeddings', subword=False)
   if 3 in tasks:
     segment = False
-    out_dir = '../data/mscoco2k_'
-    audio_info_file = '../data/mscoco2k_phone_info.json' 
-    audio_dir = '/home/lwang114/data/mscoco/audio/val2014/'
+    out_dir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_imbalanced_'
+    audio_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json' 
+    audio_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014/' # '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/audio/val2014/'
     feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
-    feat_extractor.extractMFCC(feat_configs={'is_subword': True}, out_dir=out_dir)
-    if not segment:
-      aNpz = np.load(out_dir + 'mfcc.npz')
-      aNpzConcat = {k: np.concatenate(aFeat, axis=0) for k, aFeat in aNpz.items()}
-      np.savez(out_dir + 'mfcc_unsegmented.npz', **aNpzConcat)
+    feat_extractor.extractMFCC(feat_configs={'is_subword': False, 'is_segmented': segment}, out_dir=out_dir) 

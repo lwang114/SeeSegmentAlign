@@ -911,7 +911,7 @@ def is_nonspeech(phn):
   return 1
 
 if __name__ == '__main__':
-  tasks = [9]
+  tasks = [3]
   instance_file = 'annotations/instances_val2014.json'
   caption_file = 'annotations/captions_val2014.json' 
   speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
@@ -949,7 +949,7 @@ if __name__ == '__main__':
     json_file = '../data/mscoco/%s_phone_power_law_info.json' % file_prefix
     preproc.extract_phone_info(json_file, '%s_subword_level_power_law' % file_prefix)
   if 3 in tasks: 
-    data_info_file = '../data/mscoco/mscoco2k_phone_info.json'
+    data_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_phone_info.json'
     concept_info_file = '../data/mscoco/mscoco_subset_concept_counts_power_law.json'
     preproc.create_gold_alignment(data_info_file, concept2idx_file, out_file='../data/mscoco/mscoco_gold_alignment_power_law.json')
     
