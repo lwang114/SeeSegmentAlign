@@ -118,7 +118,6 @@ if not os.path.isdir(args.exp_dir):
 
 if args.dataset == 'mscoco2k':
   datasetpath = 'data/'
-  
   if args.audio_feat_type == 'synthetic':
     args.audio_feat_type = 'audio_gaussian_vectors'
   audio_feature_file = datasetpath + 'mscoco2k_%s_unsegmented.npz' % args.audio_feat_type 
@@ -148,6 +147,13 @@ elif args.dataset == 'mscoco20k':
   gold_segmentation_file = datasetpath + "mscoco20k_gold_word_segmentation.npy"
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco20k_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco20k_gold_alignment.json'
+elif args.dataset == 'mscoco_imbalanced':
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/data/'
+  audio_feature_file = datasetpath + 'mscoco_imbalanced_mfcc_unsegmented.npz'
+  image_feature_file = datasetpath + 'mscoco_imbalanced_res34_embed512dim.npz'
+  concept2idx_file = datasetpath + 'concept2idx.json'
+  pred_alignment_file = os.path.join(args.exp_dir, 'mscoco_imbalanced_pred_alignment.json')
+  gold_alignment_file = datasetpath + 'mscoco_imbalanced_gold_alignment.json'
 
 downsample_rate = 1
 if args.audio_feat_type == 'ctc':

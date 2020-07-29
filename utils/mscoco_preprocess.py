@@ -951,7 +951,7 @@ if __name__ == '__main__':
   if 3 in tasks: 
     data_info_file = '../data/mscoco/mscoco2k_phone_info.json'
     concept_info_file = '../data/mscoco/mscoco_subset_concept_counts_power_law.json'
-    # preproc.create_gold_alignment(data_info_file, concept2idx_file, out_file='../data/mscoco/mscoco_gold_alignment_power_law.json')
+    preproc.create_gold_alignment(data_info_file, concept2idx_file, out_file='../data/mscoco/mscoco_gold_alignment_power_law.json')
     
     # data_info_file = '../data/mscoco/mscoco_subset_130k_phone_power_law_info.json'
     concept2idx_file = '../data/mscoco/concept2idx.json' 
