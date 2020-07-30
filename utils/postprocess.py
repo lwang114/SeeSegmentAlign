@@ -542,6 +542,17 @@ def convert_sec_to_10ms_landmark(real_time_segment_file, feat2wav_file, frame_se
   print("max_gap landmark: ", max_gap_segment)
   np.savez(frame_segment_file, **frame_segments)
 
+def convert_WBD_segmentation_to_10ms_landmark(wbd_segmentation_file, out_file='landmark_dict.npz'):
+  with open(wbd_segmentation_file, 'r') as f:
+    wbd_segmentations = json.load(f)
+
+  landmark_dict = {} 
+  for k in sorted(wbd_segmentations, key=lambda x:int(x.split('_')[-1])):
+    # logger.info(k)   
+    landmark_dict[k] = [int(t / 10) for t in wbd_segmentations[k]['predicted']] 
+  
+  np.savez(out_file, **landmark_dict)
+
 def convert_txt_to_npy_segment(txt_segment_file, npy_segment_file):
   with open(txt_segment_file, 'r') as f:
     lines = f.read().strip().split('\n\n')    
@@ -555,6 +566,28 @@ def convert_txt_to_npy_segment(txt_segment_file, npy_segment_file):
       segmentations.append(np.asarray(seg))
 
     np.save(npy_segment_file, segmentations)
+
+def convert_alignment_to_frame_alignment(alignment_file, landmark_file, out_file='frame_alignment.json'):
+  with open(alignment_file, 'r') as f:
+    alignment_dicts = json.load(f)
+  
+  landmark_dict = np.load(landmark_file)
+  frame_alignments = []
+  for i, align_dict in enumerate(alignment_dicts):
+    landmark = landmark_dict['arr_'+str(i)]
+    if landmark[0] != 0:
+      landmark = np.append(0, landmark)
+    alignment = align_dict['alignment']
+
+    frame_alignment = []
+    for a, start, end in enumerate(alignment, landmark[:-1], landmark[1:]): 
+      frame_alignment += [a]*(end-start)
+    frame_align_dict = deepcopy(align_dict)
+    frame_align_dict['alignment'] = frame_alignment
+    frame_alignments.append(frame_alignment)
+
+  with open(out_file, 'w') as f:
+    json.dump(frame_alignments, f, indent=4, sort_keys=True)
 
 def extract_concept_segments(cluster, feat2wav, wav_dir, ids_to_utterance_labels, out_dir=None):
   segments = []
@@ -602,13 +635,14 @@ def extract_top_concept_segments(audio_cluster_file, feat2wav_file, wav_dir, ids
     _, _ = extract_concept_segments(clusters[c], feat2wav, wav_dir, ids_to_utterance_labels, out_dir=c_dir)
 
 if __name__ == '__main__':
+  logger = logging.basicConfig(filename='postprocess.log', format='%(asctime)s %(message)s', level=logging.DEBUG) 
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', type=str, default='./', help='Experimental directory containing the alignment files')
   parser.add_argument('--dataset', choices=['mscoco2k', 'mscoco20k', 'flickr'])
   args = parser.parse_args()
   tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
   
-  tasks = [1]
+  tasks = [2]
   if 0 in tasks:
     model_name = 'crp'
     exp_dir = args.exp_dir
@@ -627,3 +661,12 @@ if __name__ == '__main__':
       segmentation_file = args.exp_dir + model_name + '_alignment.json'
       print(segmentation_file)
       segmentation_to_word_classes(segmentation_file, word_class_file='%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name))
+  if 2 in tasks:
+    wbd_segmentation_file = '../data/mscoco2k_predicted_word_boundary_for_val.json'
+    out_file = 'mscoco2k_wbd_landmarks.npz'
+    convert_WBD_segmentation_to_10ms_landmark(wbd_segmentation_file, out_file=out_file)
+  if 3 in tasks:
+    alignment_file = ''
+    landmark_file = ''
+    out_file = 'frame_alignment.json'
+    convert_alignment_to_frame_alignment(alignment_file, landmark_file, out_file)
