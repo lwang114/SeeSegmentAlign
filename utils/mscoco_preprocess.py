@@ -911,7 +911,7 @@ def is_nonspeech(phn):
   return 1
 
 if __name__ == '__main__':
-  tasks = [3]
+  tasks = [2]
   instance_file = 'annotations/instances_val2014.json'
   caption_file = 'annotations/captions_val2014.json' 
   speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
@@ -946,32 +946,31 @@ if __name__ == '__main__':
     subset_size = int(max_num_per_class * 65 / 5)
     # XXX
     file_prefix = 'mscoco_subset_%dk' % (int((max_num_per_class * 65) / 1000)) 
-    json_file = '../data/mscoco/%s_phone_power_law_info.json' % file_prefix
+    json_file = '/ws/ifp-53_2/lwang114/data/mscoco/mscoco_synthetic_imbalanced/%s_phone_power_law_info_1.json' % file_prefix
+    print(json_file)
     preproc.extract_phone_info(json_file, '%s_subword_level_power_law' % file_prefix)
+    preproc.to_xmnt_text('%s_subword_level_power_law' % file_prefix, '%s_subword_level_power_law' % file_prefix)
   if 3 in tasks: 
     data_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_phone_info.json'
     concept_info_file = '../data/mscoco/mscoco_subset_concept_counts_power_law.json'
-    preproc.create_gold_alignment(data_info_file, concept2idx_file, out_file='../data/mscoco/mscoco_gold_alignment_power_law.json')
-    
+    preproc.create_gold_alignment(data_info_file, concept2idx_file, out_file='../data/mscoco/mscoco_gold_alignment_power_law.json') 
     # data_info_file = '../data/mscoco/mscoco_subset_130k_phone_power_law_info.json'
     concept2idx_file = '../data/mscoco/concept2idx.json' 
   if 4 in tasks:
-    preproc.to_xnmt_text('../data/mscoco/mscoco_subset_subword_level_power_law.txt', 'mscoco_subset_subword_level_power_law.txt')
-  if 5 in tasks:
     data_info_file = '../data/mscoco/mscoco_subset_130k_phone_power_law_info.json'
     preproc.json_to_text_gclda(data_info_file, text_file_prefix='../data/mscoco/gclda_20k')
-  if 6 in tasks:
+  if 5 in tasks:
     json_file = '../data/train_mscoco_info_text_image.json'
     preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes')
-  if 7 in tasks:
+  if 6 in tasks:
     json_file = '../data/train_mscoco_info_text_image.json'
     preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption')
-  if 8 in tasks:
+  if 7 in tasks:
     speech_api_train_file = '/home/lwang114/data/mscoco/audio/train2014/train_2014.sqlite3'
     speech_api_val_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
     json_file = '../data/dataset_coco.json'
     preproc.extract_phone_caption_from_karpathy_split(speech_api_train_file, speech_api_val_file, json_file, out_file_prefix='mscoco_phone_caption')
-  if 9 in tasks:
+  if 8 in tasks:
     json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
     imgid2bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_imgid2bbox.json'
     preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', dataset_type='synthetic', imgid2bbox_file=imgid2bbox_file)
