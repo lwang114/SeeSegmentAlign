@@ -8,7 +8,7 @@ import librosa
 from PIL import Image
 import argparse
 
-DEBUG = True
+DEBUG = False
 END = '</s>'
 NULL = 'NULL'
 
@@ -59,7 +59,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
                                      word_unit_file='word_units.wrd',
                                      phone_unit_file='phone_units.phn',
                                      split_file = None,
-                                     concept2id_file=None, 
+                                     concept2id_file = None,
                                      include_null = False):
   with open(phone_corpus, 'r') as f_p,\
        open(concept_corpus, 'r') as f_c:
@@ -103,7 +103,9 @@ def alignment_to_word_units(alignment_file, phone_corpus,
     pair_id = 'arr_' + str(align_info['index']) # XXX
     lm_id = 'arr_'+str(ex)
     if lms:
-      lm = np.append([0], lms[lm_id])
+      lm = lms[lm_id]
+      if lm[0] != 0:
+        lm = np.append([0], lm)
     # print(pair_id) 
     prev_align_idx = -1
     start = 0
@@ -114,7 +116,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
       if not lms:    
         phn_units.append('%s %d %d %s\n' % (pair_id, t, t + 1, a_sent[t]))
       else:
-        phn_units.append('%s %d %d %s\n' % (pair_id, lm[t], lm[t+1], a_sent[t]))
+        phn_units.append('%s %d %d %s\n' % (pair_id, lm[t], lm[t+1], a_sent[t])) 
 
       if prev_align_idx != align_idx:
         if not include_null and prev_align_idx == 0:
@@ -152,6 +154,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
                                    landmark_file=None, 
                                    hierarchical = False,
                                    include_null = False):
+  # TODO Add tolerance
   f = open(phone_corpus, 'r')
   a_corpus = []
   for line in f: 
@@ -161,6 +164,11 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
   with open(alignment_file, 'r') as f:
     alignments = json.load(f)
 
+  lms = None
+  if landmark_file:
+    lms = np.load(landmark_file)
+    lm_keys = sorted(lms, key=lambda x:int(x.split('_')[-1]))
+ 
   test_indices = list(range(len(alignments)))
   if split_file:  
     with open(split_file, 'r') as f:
@@ -170,7 +178,12 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
   for ex, (align_info, a_sent) in enumerate(zip(alignments, a_corpus)):
     if not ex in test_indices:
       continue
-    pair_id = 'arr_' + str(align_info['index']) # XXX
+    
+    if lms:
+      pair_id = lm_keys[ex] 
+    else:
+      pair_id = 'arr_' + str(align_info['index']) # XXX
+    
     alignment = align_info['alignment']
     
     # Cases: 
@@ -193,11 +206,14 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
     else:
       image_concepts = align_info['image_concepts']
       
-
+    if lms:
+      lm = lms[lm_keys[ex]]
+      if lm[0] != 0:
+        lm = np.append([0], lm)
     # print(pair_id) 
     prev_align_idx = -1
     start = 0
-    if len(alignment) != len(a_sent):
+    if len(alignment) != len(a_sent) and not lms:
       print('alignment file: ', alignment_file)
       print('Warning: length of the alignment not equal to the length of sentence: %d != %d' % (len(alignment), len(a_sent)))
       gap = len(a_sent) - len(alignment)
@@ -207,7 +223,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
         alignment.extend([last_align_idx]*gap)
         # print(len(a_sent), len(alignment))
      
-    for t, (align_idx, phn) in enumerate(zip(alignment, a_sent)):
+    for t, align_idx in enumerate(alignment):
       if t == 0:
         prev_align_idx = align_idx
       
@@ -223,10 +239,17 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
           cur_concept = image_concepts[prev_align_idx] 
 
         if cur_concept not in word_units:
-          word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
+          if lms:
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t])]
+            logger.info('start, t, lm[start], lm[t]: %d %d %d %d' % (start, t, lm[start], lm[t]))
+          else:
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
         else: 
-          word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
-          
+          if lms:
+            word_units[cur_concept].append('%s %d %d\n' % (pair_id, lm[start], lm[t]))
+          else:
+            word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
+        
         prev_align_idx = align_idx
         start = t
       elif t == len(alignment) - 1:
@@ -242,9 +265,15 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
           cur_concept = image_concepts[prev_align_idx] 
  
         if cur_concept not in word_units:
-          word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
+          if lms:
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t])]
+          else:
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
         else: 
-          word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
+          if lms:
+            word_units[cur_concept].append('%s %d %d\n' % (pair_id, lm[start], lm[t]))
+          else:
+            word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
     
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):
@@ -567,28 +596,6 @@ def convert_txt_to_npy_segment(txt_segment_file, npy_segment_file):
 
     np.save(npy_segment_file, segmentations)
 
-def convert_alignment_to_frame_alignment(alignment_file, landmark_file, out_file='frame_alignment.json'):
-  with open(alignment_file, 'r') as f:
-    alignment_dicts = json.load(f)
-  
-  landmark_dict = np.load(landmark_file)
-  frame_alignments = []
-  for i, align_dict in enumerate(alignment_dicts):
-    landmark = landmark_dict['arr_'+str(i)]
-    if landmark[0] != 0:
-      landmark = np.append(0, landmark)
-    alignment = align_dict['alignment']
-
-    frame_alignment = []
-    for a, start, end in enumerate(alignment, landmark[:-1], landmark[1:]): 
-      frame_alignment += [a]*(end-start)
-    frame_align_dict = deepcopy(align_dict)
-    frame_align_dict['alignment'] = frame_alignment
-    frame_alignments.append(frame_alignment)
-
-  with open(out_file, 'w') as f:
-    json.dump(frame_alignments, f, indent=4, sort_keys=True)
-
 def extract_concept_segments(cluster, feat2wav, wav_dir, ids_to_utterance_labels, out_dir=None):
   segments = []
   for seg_info in cluster:
@@ -642,7 +649,7 @@ if __name__ == '__main__':
   args = parser.parse_args()
   tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
   
-  tasks = [2]
+  tasks = [0]
   if 0 in tasks:
     model_name = 'crp'
     exp_dir = args.exp_dir
@@ -665,8 +672,3 @@ if __name__ == '__main__':
     wbd_segmentation_file = '../data/mscoco2k_predicted_word_boundary_for_val.json'
     out_file = 'mscoco2k_wbd_landmarks.npz'
     convert_WBD_segmentation_to_10ms_landmark(wbd_segmentation_file, out_file=out_file)
-  if 3 in tasks:
-    alignment_file = ''
-    landmark_file = ''
-    out_file = 'frame_alignment.json'
-    convert_alignment_to_frame_alignment(alignment_file, landmark_file, out_file)
