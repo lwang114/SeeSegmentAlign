@@ -98,7 +98,7 @@ parser.add_argument("--audio_feat_type", type=str, choices={"mfcc", "mbn", 'kamp
 parser.add_argument("--image_feat_type", type=str, choices={'res34', 'synthetic'}, default='res34', help="Visual feature type")
 parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC/delta feature")
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
-parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
+parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k', 'mscoco_imbalanced'})
 parser.add_argument('--use_null', action='store_true')
 parser.add_argument('--n_iter', type=int, default=100, help='Number of Gibbs sampling iterations')
 parser.add_argument('--p_boundary_init', type=float, default=0.1, help='Initial boundary probability')
@@ -148,7 +148,7 @@ elif args.dataset == 'mscoco20k':
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco20k_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco20k_gold_alignment.json'
 elif args.dataset == 'mscoco_imbalanced':
-  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/data/'
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
   audio_feature_file = datasetpath + 'mscoco_imbalanced_mfcc_unsegmented.npz'
   image_feature_file = datasetpath + 'mscoco_imbalanced_res34_embed512dim.npz'
   concept2idx_file = datasetpath + 'concept2idx.json'
@@ -225,7 +225,8 @@ if start_step == 0:
             i = t*(t - 1)/2
             vec_ids[i + cur_start] = i_embed
             n_down_slices = args.embed_dim / feat_dim
-            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_train]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_train]][cur_end] / downsample_rate) 
+            start_frame, end_frame = int(landmarks_dict[landmark_ids[i_train]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_train]][cur_end] / downsample_rate)  
+            logger.info('len(landmarks_dict[i]), start_frame, end_frame, cur_start, cur_end: %d %d %d %d %d' % (len(landmarks_dict[landmark_ids[i_train]]), start_frame, end_frame, cur_start, cur_end))
             if args.am_class != 'hfbgmm' or cur_end - cur_start == 1:
               embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
@@ -245,17 +246,22 @@ if start_step <= 1:
   print("Start processing visual embeddings")
   begin_time = time.time()
   image_feats = np.load(image_feature_file)
+  v_embedding_mats = {}
   v_vec_ids = {}
   for k in sorted(image_feats, key=lambda x:int(x.split('_')[-1])):
+    if not int(k.split('_')[-1]) in train_indices:
+      continue
+    v_embedding_mats[k] = image_feats[k]
     v_vec_ids[k] = np.arange(len(image_feats[k]))
   
+  np.savez(args.exp_dir+'v_embedding_mats.npz', **v_embedding_mats)
   np.savez(args.exp_dir+"v_vec_ids_dict.npz", **v_vec_ids)
   print("Take %0.5f s to finish extracting visual embedding vectors !" % (time.time()-begin_time))
 
 if start_step <= 2:
   begin_time = time.time()
   a_embedding_mats = np.load(args.exp_dir+'embedding_mats.npz')
-  v_embedding_mats = np.load(image_feature_file)
+  v_embedding_mats = np.load(args.exp_dir+'v_embedding_mats.npz')
   a_vec_ids_dict = np.load(args.exp_dir+'a_vec_ids_dict.npz')
   v_vec_ids_dict = np.load(args.exp_dir+'v_vec_ids_dict.npz')
   durations_dict = np.load(args.exp_dir+"durations_dict.npz")

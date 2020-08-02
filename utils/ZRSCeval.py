@@ -43,7 +43,7 @@ if args.dataset == 'mscoco_imbalanced':
   concept_corpus = datapath + '%s_image_captions.txt' % args.dataset
   concept2id_file = datapath + 'concept2idx.json'
   gold_alignment_file = datapath + '%s_gold_alignment.json' % args.dataset
-  landmark_file = datapath + '%s_gold_landmarks_dict.npz' % args.dataset
+  landmark_file = datapath + '%s_landmarks_dict.npz' % args.dataset
 elif args.dataset == 'flickr':
   datapath = '../data/'
   phone_corpus = datapath + 'phoneme_level/src_flickr30k.txt'

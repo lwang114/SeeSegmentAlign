@@ -127,9 +127,8 @@ def alignment_to_word_units(alignment_file, phone_corpus,
         if not lms:
           word_units.append('%s %d %d %s\n' % (pair_id, start, t, image_concepts[prev_align_idx]))
         else:
-          lm_id = 'arr_'+str(ex)
+          lm_id = 'arr_'+str(ex) 
           word_units.append('%s %d %d %s\n' % (pair_id, lm[start], lm[t], image_concepts[prev_align_idx]))
-
         prev_align_idx = align_idx
         start = t
       elif t == len(alignment) - 1:
@@ -205,7 +204,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
       image_concepts = [c for cc in align_info['image_concepts'] for c in cc.split(',')]
     else:
       image_concepts = align_info['image_concepts']
-      
+
     if lms:
       lm = lms[lm_keys[ex]]
       if lm[0] != 0:
@@ -236,12 +235,14 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
         if hierarchical:
           cur_concept = ','.join(image_concepts[start:t])
         else:
+          # if DEBUG:
+          #   logger.info('image_concepts: %s' % str(image_concepts))
+          #   logger.info('ex, pair_id, prev_align_idx, len(image_concepts): %d %s %d %d' % (ex, pair_id, prev_align_idx, len(image_concepts)))
           cur_concept = image_concepts[prev_align_idx] 
 
         if cur_concept not in word_units:
           if lms:
-            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t])]
-            logger.info('start, t, lm[start], lm[t]: %d %d %d %d' % (start, t, lm[start], lm[t]))
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t])] 
           else:
             word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
         else: 
@@ -252,10 +253,8 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
         
         prev_align_idx = align_idx
         start = t
-      elif t == len(alignment) - 1:
-        if DEBUG:
-          logger.info('prev_align_idx, len(image_concepts): ' + str(prev_align_idx) + ' ' + str(len(image_concepts)))
-
+      
+      if t == len(alignment) - 1:
         if not include_null and prev_align_idx == 0:
           continue
         
@@ -263,17 +262,21 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
           cur_concept = ','.join(image_concepts[start:t])
         else:
           cur_concept = image_concepts[prev_align_idx] 
- 
+
         if cur_concept not in word_units:
           if lms:
-            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t])]
+            if DEBUG:
+              logger.info('pair_id, start, t, lm[start], lm[t+1], len(image_concepts): %s %d %d %d %d %d' % (pair_id, start, t, lm[start], lm[t+1], len(image_concepts)))
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t+1])]
           else:
-            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
+            word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t + 1)]
         else: 
           if lms:
-            word_units[cur_concept].append('%s %d %d\n' % (pair_id, lm[start], lm[t]))
+            if DEBUG:
+              logger.info('pair_id, start, t, lm[start], lm[t+1], len(image_concepts): %s %d %d %d %d %d' % (pair_id, start, t, lm[start], lm[t+1], len(image_concepts)))
+            word_units[cur_concept].append('%s %d %d\n' % (pair_id, lm[start], lm[t+1]))
           else:
-            word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
+            word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t + 1))
     
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):
