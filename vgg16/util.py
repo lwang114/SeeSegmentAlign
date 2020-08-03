@@ -189,3 +189,25 @@ def load_progress(prog_pkl, quiet=False):
     msg =  "[%5s %7s %5s %7s %6s]" % ("epoch", "step", "best_epoch", "best_avg_r10", "time")
     _print(msg)
     return prog, epoch, global_step, best_epoch, best_avg_r10
+
+def merge_label_by_counts(class2id_file, class2count_file, topk=3, out_file='merged_class2id.json'):
+  with open(class2count_file, 'r') as f_c,
+       open(class2id_file, 'r') as f_i:
+    class2count = json.load(f_c)
+    class2id = json.load(f_i)
+
+  sorted_class = sorted(class2id, key=lambda x:class2count[x], reverse=True)
+  top_classes = sorted_class[:topk]
+  new_class2id = {c:0 for c in sorted_class if c in top_classes}
+  with open(out_file, 'w') as f:
+    json.dump(new_class2id, f, indent=4, sort_keys=True)
+
+def cluster_f1(pred, gold):
+  n = np.max(pred)
+  confusion_mats = np.zeros((n+1, n+1))
+  for p, g in zip(list(pred), list(gold)):
+    confusion_mats[p, g] += 1
+  
+  rec = np.mean(np.max(confusion_mats, axis=0) / np.maximum(np.sum(confusion_mats, axis=0), EPS))
+  prec = np.mean(np.max(confusion_mats, axis=1) / np.maximum(np.sum(confusion_mats, axis=1), EPS))
+  return 2 * rec * prec / np.maximum(rec + prec, EPS), rec, prec 

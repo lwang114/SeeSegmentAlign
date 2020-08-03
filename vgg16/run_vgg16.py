@@ -39,6 +39,8 @@ parser.add_argument('--print_class_accuracy', action='store_true', help='Print a
 parser.add_argument('--pretrain_model_file', type=str, default=None, help='Pretrained parameters file (used only in feature extraction)')
 parser.add_argument('--save_features', action='store_true', help='Save the hidden activations of the neural networks')
 parser.add_argument('--date', type=str)
+parser.add_argument('--split_file', type=str, default=None, help='Text file containing info about training-test set split')
+parser.add_argument('--merge_labels', action='store_true', help='Merge labels to form a more balanced dataset')
 args = parser.parse_args()
 
 if args.date:
@@ -88,8 +90,11 @@ if 0 in tasks:
     train_label_file = '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced_train.txt'
     test_label_file = '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced_test.txt'
     args.class2id_file = 'mscoco_class2id.json'
+    # class2count_file = '../data/mscoco/mscoco_subset_130k_image_concept_counts.json'
+      
     with open(args.class2id_file, 'r') as f:
       class2idx = json.load(f)
+
     args.n_class = len(class2idx.keys())
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
@@ -131,7 +136,34 @@ if 0 in tasks:
     
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
-
+  elif args.dataset == 'mscoco_imbalanced':
+    # TODO
+    data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014'
+    bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/bboxes.txt'
+    split_data(bbox_file, args.split_file)
+    train_label_file = args.exp_dir + 'train_bboxes.txt'
+    test_label_file = args.exp_dir + 'test_bboxes.txt'
+    args.class2id_file = 'mscoco_class2id.json'
+    if args.merge_labels:
+      merge_label_by_counts(args.class2id_file, class2count_file, out_file=args.exp_dir+'merged_class2id.json')
+      with open(args.exp_dir+'merged_class2id.json', 'r') as f:
+        class2idx = json.load(f) 
+    else:
+      with open(args.class2id_file, 'r') as f:
+        class2idx = json.load(f) 
+    args.n_class = len(class2idx.keys())
+    if args.random_crop:
+      transform_train = transforms.Compose(
+        [transforms.RandomSizedCrop(224),
+         transforms.ToTensor(),
+         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
+        )        
+    else:
+      transform_train = transform 
+    
+    trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
+    testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)
+       
   train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0)
   test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0)
   
