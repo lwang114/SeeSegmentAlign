@@ -5,6 +5,7 @@ import json
 from segmentalist.multimodal_segmentalist.multimodal_unigram_acoustic_wordseg import *
 import segmentalist.multimodal_segmentalist.fbgmm as fbgmm
 import segmentalist.multimodal_segmentalist.vgmm as vgmm
+import segmentalist.multimodal_segmentalist.vtgmm as vtgmm
 import segmentalist.multimodal_segmentalist.mixture_aligner as mixture_aligner
 import segmentalist.multimodal_segmentalist.gaussian_components_fixedvar as gaussian_components_fixedvar
 from segmentalist.multimodal_segmentalist.hierarchical_multimodal_unigram_acoustic_wordseg import *
@@ -89,7 +90,7 @@ parser.add_argument("--technique", choices={"resample", "interpolate", "rasanen"
 parser.add_argument("--am_class", choices={"fbgmm", "hfbgmm"}, default='fbgmm', help="Class of acoustic model")
 parser.add_argument("--am_K", type=int, default=65, help="Number of acoustic word clusters")
 parser.add_argument("--am_M", type=int, default=50, help="Number of phone clusters (used only by the hierarchical model)")
-parser.add_argument("--vm_class", choices={"vgmm"}, default='vgmm', help="Class of visual model")
+parser.add_argument("--vm_class", choices={"vgmm", "vtgmm"}, default='vgmm', help="Class of visual model")
 parser.add_argument("--vm_K", type=int, default=65, help="Number of visual clusters")
 parser.add_argument('--aligner_class', choices={'mixture_aligner', 'crp_aligner'}, default='mixture_aligner', help='Class of alignment model')
 parser.add_argument('--segmenter_class', choices={'standard', 'mixture'}, default='standard', help='Class of segmentation model')
@@ -128,32 +129,34 @@ if args.dataset == 'mscoco2k':
     args.image_feat_type = 'concept_gaussian_vectors'
   image_feature_file = datasetpath + 'mscoco2k_%s.npz' % args.image_feat_type 
   concept2idx_file = datasetpath + 'concept2idx.json'
-  
   pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
   pred_segmentation_file = os.path.join(args.exp_dir, "mscoco2k_pred_segmentation.npy")
   pred_landmark_segmentation_file = "%smscoco2k_pred_landmark_segmentation.npy" % args.exp_dir
   gold_segmentation_file = datasetpath + "mscoco2k_gold_word_segmentation.npy"
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco2k_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco2k_gold_alignment.json'
+  classifier_weights_npz = '' # TODO
 elif args.dataset == 'mscoco20k':
   datasetpath = 'data/'
   audio_feature_file = datasetpath + 'mscoco20k_mfcc.npz' 
   image_feature_file = datasetpath + 'mscoco20k_%s.npz' % args.image_feat_type 
   concept2idx_file = datasetpath + 'concept2idx.json'
-
   pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
   pred_segmentation_file = os.path.join(args.exp_dir, "mscoco20k_pred_segmentation.npy")
   pred_landmark_segmentation_file = "%smscoco20k_pred_landmark_segmentation.npy" % args.exp_dir
   gold_segmentation_file = datasetpath + "mscoco20k_gold_word_segmentation.npy"
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco20k_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco20k_gold_alignment.json'
+  classifier_weights_npz = '' # TODO
 elif args.dataset == 'mscoco_imbalanced':
+  args.vm_class = 'vtgmm'
   datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
   audio_feature_file = datasetpath + 'mscoco_imbalanced_mfcc_unsegmented.npz'
   image_feature_file = datasetpath + 'mscoco_imbalanced_res34_embed512dim.npz'
   concept2idx_file = datasetpath + 'concept2idx.json'
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco_imbalanced_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco_imbalanced_gold_alignment.json'
+  classifier_weights_npz = '' # TODO
 
 downsample_rate = 1
 if args.audio_feat_type == 'ctc':
@@ -305,6 +308,11 @@ if start_step <= 2:
     vm_class = vgmm.VGMM
     width = 1.
     vm_param_prior = gaussian_components_fixedvar.FixedVarPrior(width, m_0, width)
+    vm_K = args.vm_K
+  elif args.vm_class == 'vtgmm':
+    vm_class = vtgmm.VisualTreeGMM
+    width = 1.
+    vm_param_prior = vtgmm.VisualTreePrior(width, m_0, width, classifier_weights_npz)
     vm_K = args.vm_K
   else:
     raise ValueError("vm_class %s is not supported" % args.vm_class)
