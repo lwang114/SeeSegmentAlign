@@ -212,5 +212,16 @@ def cluster_f1(pred, gold):
   prec = np.mean(np.max(confusion_mats, axis=1) / np.maximum(np.sum(confusion_mats, axis=1), EPS))
   return 2 * rec * prec / np.maximum(rec + prec, EPS), rec, prec 
 
-# TODO
-def split_data()
+def split_data(bbox_file, split_file, out_prefix='./'):
+  with open(bbox_file, 'r') as f_b,\
+       open(split_file, 'r') as f_s:
+    bbox_info = f_b.read().strip().split('\n')
+    split_info = f_s.read().strip().split('\n')
+
+  with open(out_prefix + 'train_bboxes.txt', 'w') as f_tr,
+       open(out_prefix + 'test_bboxes.txt', 'w') as f_tx:
+    for bbox, split in zip(bbox_info):
+      if int(split):
+        f_tx.write(bbox+'\n')
+      else:
+        f_tr.write(bbox+'\n')

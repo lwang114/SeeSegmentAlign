@@ -162,7 +162,7 @@ if 0 in tasks:
               f.write('0\n')
       print('Finish randomly spliting the data') 
 
-    split_data(bbox_file, args.exp_dir + 'split_' + args.split_file_index + '.txt')
+    split_data(bbox_file, args.exp_dir + 'split_' + args.split_file_index + '.txt', out_prefix=args.exp_dir)
     train_label_file = args.exp_dir + 'train_bboxes.txt'
     test_label_file = args.exp_dir + 'test_bboxes.txt'
     args.class2id_file = 'mscoco_class2id.json'
