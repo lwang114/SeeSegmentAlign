@@ -191,7 +191,7 @@ def load_progress(prog_pkl, quiet=False):
     return prog, epoch, global_step, best_epoch, best_avg_r10
 
 def merge_label_by_counts(class2id_file, class2count_file, topk=3, out_file='merged_class2id.json'):
-  with open(class2count_file, 'r') as f_c,
+  with open(class2count_file, 'r') as f_c,\
        open(class2id_file, 'r') as f_i:
     class2count = json.load(f_c)
     class2id = json.load(f_i)
@@ -211,3 +211,6 @@ def cluster_f1(pred, gold):
   rec = np.mean(np.max(confusion_mats, axis=0) / np.maximum(np.sum(confusion_mats, axis=0), EPS))
   prec = np.mean(np.max(confusion_mats, axis=1) / np.maximum(np.sum(confusion_mats, axis=1), EPS))
   return 2 * rec * prec / np.maximum(rec + prec, EPS), rec, prec 
+
+# TODO
+def split_data()

@@ -13,6 +13,7 @@ import json
 import numpy as np
 import random
 import logging
+from util import *
 
 DEBUG = True
 random.seed(1)
@@ -39,7 +40,8 @@ parser.add_argument('--print_class_accuracy', action='store_true', help='Print a
 parser.add_argument('--pretrain_model_file', type=str, default=None, help='Pretrained parameters file (used only in feature extraction)')
 parser.add_argument('--save_features', action='store_true', help='Save the hidden activations of the neural networks')
 parser.add_argument('--date', type=str)
-parser.add_argument('--split_file', type=str, default=None, help='Text file containing info about training-test set split')
+parser.add_argument('--n_folds', type=int, default=1, help='Number of folds for cross validation')
+parser.add_argument('--split_file_index', type=int, default=0, help='Text file containing info about training-test set split')
 parser.add_argument('--merge_labels', action='store_true', help='Merge labels to form a more balanced dataset')
 args = parser.parse_args()
 
@@ -47,6 +49,8 @@ if args.date:
   args.exp_dir = 'exp/%s_%s_%s_lr_%s_%s/' % (args.image_model, args.dataset, args.optim, args.lr, args.date)
 else:
   args.exp_dir = 'exp/%s_%s_%s_lr_%s/' % (args.image_model, args.dataset, args.optim, args.lr)
+if not os.path.isdir(args.exp_dir):
+  os.mkdir(args.exp_dir)
 
 transform = transforms.Compose(
   [transforms.Scale(256),
@@ -55,24 +59,23 @@ transform = transforms.Compose(
    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
 )
 print(args.exp_dir)
-tasks = [3]
+tasks = [0, 2]
 
 if args.dataset == 'mscoco_130k' or args.dataset == 'mscoco_2k':
   data_path = '/home/lwang114/data/mscoco/val2014/'
-  args.class2id_file = 'mscoco_class2id.json'
+  args.class2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx.json'
   with open(args.class2id_file, 'r') as f:
     class2idx = json.load(f)  
   args.n_class = len(class2idx.keys())
 elif args.dataset == 'mscoco_train':
   data_path = '/home/lwang114/data/mscoco/train2014/'
-  # XXX
-  # args.class2id_file = 'mscoco_class2id.json'
-  # with open(args.class2id_file, 'r') as f:
-  #   class2idx = json.load(f)
-  args.n_class = 80 # XXX len(class2idx.keys())
+  args.n_class = 80 
 elif args.dataset == 'mscoco_imbalanced':
   data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
-  args.n_class = 80
+  args.class2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx.json'
+  with open(args.class2id_file, 'r') as f:
+    class2idx = json.load(f)  
+  args.n_class = len(class2idx.keys())
 
 #------------------#
 # Network Training #
@@ -137,13 +140,33 @@ if 0 in tasks:
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_imbalanced':
-    # TODO
-    data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014'
-    bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/bboxes.txt'
-    split_data(bbox_file, args.split_file)
+    data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
+    bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_imbalanced_label_bboxes.txt'
+    class2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced//ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
+
+    assert args.split_file_index < args.n_folds
+    if not os.path.isfile(args.exp_dir + 'split_' + str(args.split_file_index) + '.txt'):
+      print('Split file not found, creating split files')
+      with open(bbox_file, 'r') as f:
+        n_examples = len(f.read().strip().split('\n'))
+
+      order = list(range(n_examples))
+      random.shuffle(order)
+      fold_size = int(n_examples / args.n_folds)
+      for k in range(args.n_folds):
+        with open(args.exp_dir+'split_%d.txt' % k, 'w') as f:
+          for o in order:
+            if o < (k + 1) * fold_size and o >= k * fold_size:
+              f.write('1\n')
+            else:
+              f.write('0\n')
+      print('Finish randomly spliting the data') 
+
+    split_data(bbox_file, args.exp_dir + 'split_' + args.split_file_index + '.txt')
     train_label_file = args.exp_dir + 'train_bboxes.txt'
     test_label_file = args.exp_dir + 'test_bboxes.txt'
     args.class2id_file = 'mscoco_class2id.json'
+       
     if args.merge_labels:
       merge_label_by_counts(args.class2id_file, class2count_file, out_file=args.exp_dir+'merged_class2id.json')
       with open(args.exp_dir+'merged_class2id.json', 'r') as f:
