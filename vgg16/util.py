@@ -3,7 +3,9 @@ import pickle
 import numpy as np
 import torch
 from torch.autograd import Variable
+import json
 
+EPS = 1e-16
 def calc_recalls(image_outputs, audio_outputs, nframes, simtype='MISA'):
     """
 	Computes recall at 1, 5, and 10 given encoded image and audio outputs.
@@ -198,7 +200,8 @@ def merge_label_by_counts(class2id_file, class2count_file, topk=3, out_file='mer
 
   sorted_class = sorted(class2id, key=lambda x:class2count[x], reverse=True)
   top_classes = sorted_class[:topk]
-  new_class2id = {c:0 for c in sorted_class if c in top_classes}
+  new_class2id = {c:(not (c in top_classes)) for c in sorted_class}
+
   with open(out_file, 'w') as f:
     json.dump(new_class2id, f, indent=4, sort_keys=True)
 
@@ -218,9 +221,9 @@ def split_data(bbox_file, split_file, out_prefix='./'):
     bbox_info = f_b.read().strip().split('\n')
     split_info = f_s.read().strip().split('\n')
 
-  with open(out_prefix + 'train_bboxes.txt', 'w') as f_tr,
+  with open(out_prefix + 'train_bboxes.txt', 'w') as f_tr,\
        open(out_prefix + 'test_bboxes.txt', 'w') as f_tx:
-    for bbox, split in zip(bbox_info):
+    for bbox, split in zip(bbox_info, split_info):
       if int(split):
         f_tx.write(bbox+'\n')
       else:

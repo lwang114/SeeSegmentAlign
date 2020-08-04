@@ -32,7 +32,7 @@ parser.add_argument('--dataset', default='mscoco_130k', choices=['mscoco_130k', 
 parser.add_argument('--n_class', type=int, default=10)
 parser.add_argument('--n_epoch', type=int, default=20)
 parser.add_argument('--class2id_file', type=str, default=None)
-parser.add_argument('--image_model', type=str, default='vgg16', choices=['vgg16', 'res34'], help='image model architecture')
+parser.add_argument('--image_model', type=str, default='res34', choices=['vgg16', 'res34'], help='image model architecture')
 parser.add_argument('--optim', type=str, default='sgd',
         help="training optimizer", choices=["sgd", "adam"])
 parser.add_argument('--random_crop', action='store_true', help='Use random cropping as data augmentation')
@@ -46,9 +46,9 @@ parser.add_argument('--merge_labels', action='store_true', help='Merge labels to
 args = parser.parse_args()
 
 if args.date:
-  args.exp_dir = 'exp/%s_%s_%s_lr_%s_%s/' % (args.image_model, args.dataset, args.optim, args.lr, args.date)
+  args.exp_dir = 'exp/%s_%s_%s_lr_%s_split%d_%s/' % (args.image_model, args.dataset, args.optim, args.lr, args.split_file_index, args.date)
 else:
-  args.exp_dir = 'exp/%s_%s_%s_lr_%s/' % (args.image_model, args.dataset, args.optim, args.lr)
+  args.exp_dir = 'exp/%s_%s_%s_lr_%s_split%d/' % (args.image_model, args.dataset, args.optim, args.lr, args.split_file_index)
 if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
 
@@ -92,7 +92,6 @@ if 0 in tasks:
     label_file = '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced.txt'
     train_label_file = '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced_train.txt'
     test_label_file = '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced_test.txt'
-    args.class2id_file = 'mscoco_class2id.json'
     # class2count_file = '../data/mscoco/mscoco_subset_130k_image_concept_counts.json'
       
     with open(args.class2id_file, 'r') as f:
@@ -124,7 +123,6 @@ if 0 in tasks:
     data_path = '/home/lwang114/data/mscoco/val2014/'
     train_label_file = '/home/lwang114/data/mscoco/mscoco_image_subset_image_bboxes_balanced_train.txt'
     test_label_file = '/home/lwang114/data/mscoco/mscoco_image_subset_image_bboxes_balanced_test.txt'
-    args.class2id_file = 'mscoco_class2id.json'
     with open(args.class2id_file, 'r') as f:
       class2idx = json.load(f)
     args.n_class = len(class2idx.keys())
@@ -142,10 +140,10 @@ if 0 in tasks:
   elif args.dataset == 'mscoco_imbalanced':
     data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
     bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_imbalanced_label_bboxes.txt'
-    class2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced//ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
+    class2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
 
     assert args.split_file_index < args.n_folds
-    if not os.path.isfile(args.exp_dir + 'split_' + str(args.split_file_index) + '.txt'):
+    if not os.path.isfile('%ssplit_%d.txt' % (args.exp_dir, args.split_file_index)):
       print('Split file not found, creating split files')
       with open(bbox_file, 'r') as f:
         n_examples = len(f.read().strip().split('\n'))
@@ -162,14 +160,14 @@ if 0 in tasks:
               f.write('0\n')
       print('Finish randomly spliting the data') 
 
-    split_data(bbox_file, args.exp_dir + 'split_' + args.split_file_index + '.txt', out_prefix=args.exp_dir)
+    split_data(bbox_file, '%ssplit_%d.txt' % (args.exp_dir, args.split_file_index), out_prefix=args.exp_dir)
     train_label_file = args.exp_dir + 'train_bboxes.txt'
     test_label_file = args.exp_dir + 'test_bboxes.txt'
-    args.class2id_file = 'mscoco_class2id.json'
        
     if args.merge_labels:
       merge_label_by_counts(args.class2id_file, class2count_file, out_file=args.exp_dir+'merged_class2id.json')
-      with open(args.exp_dir+'merged_class2id.json', 'r') as f:
+      args.class2id_file = args.exp_dir+'merged_class2id.json'
+      with open(args.class2id_file, 'r') as f:
         class2idx = json.load(f) 
     else:
       with open(args.class2id_file, 'r') as f:

@@ -44,8 +44,8 @@ def train(image_model, train_loader, test_loader, args, device_id=0):
     image_model.train()
     for i, image_input in enumerate(train_loader):
       # XXX
-      if i > 3:
-        break
+      # if i > 3:
+      #   break
 
       inputs, labels = image_input 
       inputs = Variable(inputs)
@@ -149,7 +149,7 @@ def validate(image_model, test_loader, args):
 
     print('Accuracy of the network: %d %%, %d/%d' % (100 * correct / total, correct, total))
     if args.merge_labels:
-      f1, recall, prec = token_f1(predicted.data.numpy(), labels.data.numpy()) 
+      f1, recall, prec = cluster_f1(predicted.data.cpu().numpy(), labels.data.cpu().numpy()) 
       print('Token recall, precision and F1 score: %d %%, %d %%, %d %%' % (100 * recall, 100 * prec, 100 * f1))
 
     if args.print_class_accuracy:
