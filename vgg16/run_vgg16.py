@@ -71,7 +71,7 @@ elif args.dataset == 'mscoco_train':
   data_path = '/home/lwang114/data/mscoco/train2014/'
   args.n_class = 80 
 elif args.dataset == 'mscoco_imbalanced':
-  data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
+  data_path = '/home/lwang114/data/mscoco/val2014/'
   args.class2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx.json'
   with open(args.class2id_file, 'r') as f:
     class2idx = json.load(f)  
@@ -138,7 +138,7 @@ if 0 in tasks:
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_imbalanced':
-    data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
+    data_path = '/home/lwang114/data/mscoco/val2014/'
     bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_imbalanced_label_bboxes.txt'
     class2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
 
