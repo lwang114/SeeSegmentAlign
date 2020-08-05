@@ -821,13 +821,15 @@ if __name__ == '__main__':
   # Word discovery on MSCOCO #
   #---------------------------#
   if 3 in tasks:      
-    speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/embedding_mats.npz'
-    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/v_embedding_mats.npz'
+    speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_gaussian_vectors.npz'
+    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_res34_embed512dim.npz'
+    # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/embedding_mats.npz'
+    # imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/v_embedding_mats.npz'
     durationFile = None 
     dsRate = 1
 
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
-    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug1_mscoco2k_wbd_%s_momentum%.2f_lr%.5f_gaussiansoftmax/image_audio' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
+    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_mscoco_imbalanced_%s_momentum%.2f_lr%.5f_gaussiansoftmax_nomerge/image_audio_balanced' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)

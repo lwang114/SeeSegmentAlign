@@ -22,7 +22,8 @@ class MSCOCORegionDataset(Dataset):
       for line in f:
         k, c, x, y, w, h = line.strip().split()
         self.class_labels.append(c)
-        self.image_keys.append('_'.join(k.split('_')[:-1]))
+        # XXX self.image_keys.append('_'.join(k.split('_')[:-1]))
+        self.image_keys.append(k)
         self.bboxes.append([x, y, w, h])
 
     with open(class2idx_file, 'r') as f:

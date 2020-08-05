@@ -64,8 +64,7 @@ def train(image_model, train_loader, test_loader, args, device_id=0):
       loss.backward()
       optimizer.step()
       
-      # Adapt to the size of the dataset
-      n_print_step = 100
+      n_print_step = 1000 # XXX
       if (i + 1) % n_print_step == 0:
         print('Epoch %d takes %.3f s to process %d batches, running loss %.5f' % (epoch, time.time()-begin_time, i, running_loss / n_print_step))
         running_loss = 0.
@@ -143,7 +142,7 @@ def validate(image_model, test_loader, args):
         class_correct[label_idx] += c[i_b].data.cpu().numpy()
         class_total[label_idx] += 1 
       
-      n_print_step = 100
+      n_print_step = 1000 # XXX
       if (i + 1) % n_print_step == 0:
         print('Takes %.3f s to process %d batches, running accuracy: %d %%' % (time.time()-begin_time, i, 100 * correct / total))
 

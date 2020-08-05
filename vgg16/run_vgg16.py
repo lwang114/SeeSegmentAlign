@@ -46,9 +46,9 @@ parser.add_argument('--merge_labels', action='store_true', help='Merge labels to
 args = parser.parse_args()
 
 if args.date:
-  args.exp_dir = 'exp/%s_%s_%s_lr_%s_split%d_%s/' % (args.image_model, args.dataset, args.optim, args.lr, args.split_file_index, args.date)
+  args.exp_dir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/vgg16/exp/%s_%s_%s_lr_%s_split%d_%s/' % (args.image_model, args.dataset, args.optim, args.lr, args.split_file_index, args.date)
 else:
-  args.exp_dir = 'exp/%s_%s_%s_lr_%s_split%d/' % (args.image_model, args.dataset, args.optim, args.lr, args.split_file_index)
+  args.exp_dir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/vgg16/exp/%s_%s_%s_lr_%s_split%d/' % (args.image_model, args.dataset, args.optim, args.lr, args.split_file_index)
 if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
 
@@ -59,7 +59,7 @@ transform = transforms.Compose(
    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
 )
 print(args.exp_dir)
-tasks = [0, 2]
+tasks = [3]
 
 if args.dataset == 'mscoco_130k' or args.dataset == 'mscoco_2k':
   data_path = '/home/lwang114/data/mscoco/val2014/'
@@ -71,8 +71,8 @@ elif args.dataset == 'mscoco_train':
   data_path = '/home/lwang114/data/mscoco/train2014/'
   args.n_class = 80 
 elif args.dataset == 'mscoco_imbalanced':
-  data_path = '/home/lwang114/data/mscoco/val2014/'
-  args.class2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx.json'
+  data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
+  args.class2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx_65class.json'
   with open(args.class2id_file, 'r') as f:
     class2idx = json.load(f)  
   args.n_class = len(class2idx.keys())
@@ -101,12 +101,38 @@ if 0 in tasks:
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_train':
-    data_path = '/home/lwang114/data/mscoco/'
-    train_label_file = '../data/mscoco/mscoco_image_subset_260k_image_bboxes_balanced.txt'
-    test_label_file = '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced.txt'
-    args.class2id_file = 'mscoco_class2id.json'
-    with open(args.class2id_file, 'r') as f:
-      class2idx = json.load(f)
+    data_path = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
+    train_label_file = data_path + 'train2014/mscoco_train_bboxes.txt' # '../data/mscoco/mscoco_image_subset_260k_image_bboxes_balanced.txt'
+    test_label_file = data_path + 'val2014/mscoco_val_bboxes.txt' # '../data/mscoco/mscoco_subset_130k_image_bboxes_balanced.txt'
+    class2count_file = args.exp_dir + 'class2count.json'
+    args.class2id_file = args.exp_dir + 'class2idx.json'
+    with open(train_label_file, 'r') as f:
+      class2count = {}
+      class2id = {}
+      n_class = 0
+      for line in f:
+        c = line.split()[1]
+        if not c in class2count:
+          class2count[c] = 1
+          class2id[c] = n_class
+          n_class += 1 
+        else:
+          class2count[c] += 1
+  
+    with open(class2count_file, 'w') as f_c,\
+         open(args.class2id_file, 'w') as f_i:
+      json.dump(class2count, f_c, indent=4, sort_keys=True)
+      json.dump(class2id, f_i, indent=4, sort_keys=True)
+
+    if args.merge_labels:
+      merge_label_by_counts(args.class2id_file, class2count_file, out_file=args.exp_dir+'merged_class2id.json', topk=1)
+      args.class2id_file = args.exp_dir+'merged_class2id.json'
+      with open(args.class2id_file, 'r') as f:
+        class2idx = json.load(f) 
+    else:
+      with open(args.class2id_file, 'r') as f:
+        class2idx = json.load(f) 
+   
     args.n_class = len(class2idx.keys())
     if args.random_crop:
       transform_train = transforms.Compose(
@@ -116,9 +142,9 @@ if 0 in tasks:
         )        
     else:
       transform_train = transform
-    
-    trainset = MSCOCORegionDataset(data_path + 'train2014/', train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
-    testset = MSCOCORegionDataset(data_path + 'val2014/', test_label_file, class2idx_file=args.class2id_file, transform=transform)   
+
+    trainset = MSCOCORegionDataset(data_path + 'train2014/imgs/train2014/', train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
+    testset = MSCOCORegionDataset(data_path + 'val2014/imgs/val2014/', test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_2k':
     data_path = '/home/lwang114/data/mscoco/val2014/'
     train_label_file = '/home/lwang114/data/mscoco/mscoco_image_subset_image_bboxes_balanced_train.txt'
@@ -138,7 +164,7 @@ if 0 in tasks:
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_imbalanced':
-    data_path = '/home/lwang114/data/mscoco/val2014/'
+    data_path = '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/val2014/'
     bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_imbalanced_label_bboxes.txt'
     class2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
 
@@ -329,8 +355,9 @@ if 3 in tasks:
     for data_key in data_keys:
       datum_info = data_info[data_key]
       image_ids = []
-      for _ in datum_info:
+      for _ in datum_info['data_ids']:
         image_ids.append('arr_' + str(i_image))
         i_image += 1
+      logger.info('len(image_ids): %d' % len(image_ids))
       new_image_feats[data_key] = np.asarray([image_feats[image_id] for image_id in image_ids])
     np.savez(new_image_feat_file, **new_image_feats) 
