@@ -828,8 +828,8 @@ if __name__ == '__main__':
     durationFile = None 
     dsRate = 1
 
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
-    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_mscoco_imbalanced_%s_momentum%.2f_lr%.5f_gaussiansoftmax_nomerge/image_audio_balanced' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    modelConfigs = {'dataset': 'mscoco_imbalanced', 'has_null': False, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
+    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_nomerge/image_audio_balanced' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
