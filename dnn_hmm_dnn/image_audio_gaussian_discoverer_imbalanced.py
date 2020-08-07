@@ -6,12 +6,15 @@ from scipy.special import logsumexp
 import random
 from copy import deepcopy
 from sklearn.cluster import KMeans
+import logging
+import os
 
 NULL = "NULL"
 DEBUG = False
 EPS = 1e-50
 random.seed(1)
 np.random.seed(1)
+logger = logging.getLogger(__name__)  
 
 # A term discovery model using image regions and spoken captions
 # * The transition matrix is assumed to be Toeplitz 
@@ -36,7 +39,9 @@ class ImageAudioGaussianHMMDiscoverer:
     self.lenProb = {}
     self.phoneProbs = None                # obs[e_i][f_j] is initialized with a count of how often target word e_i and foreign word f_j appeared together.
     self.avgLogTransProb = float('-inf')
-     
+    
+    if self.hasNull:
+      self.nWords += 1 
     # Read the corpus
     self.readCorpus(speechFeatureFile, imageFeatureFile, debug=False);
     self.initProbFile = modelConfigs.get('init_prob_file', None)
@@ -52,19 +57,13 @@ class ImageAudioGaussianHMMDiscoverer:
     nTokens = 0
     nImages = 0
 
-    vNpz = np.load(imageFeatFile)
-    vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))] 
+    vNpz = np.load(imageFeatFile) 
     self.vCorpus = [vNpz[k] for k in sorted(vNpz, key=lambda x:int(x.split('_')[-1]))] # XXX
+    logger.info('vNpz[arr_0].shape: ' + str(vNpz['arr_0'].shape))
+    self.imageFeatDim = self.vCorpus[0].shape[-1]
     if self.hasNull:
       # Add a NULL concept vector
-      self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
-    self.imageFeatDim = self.vCorpus[0].shape[-1]
-    
-    for ex, vfeat in enumerate(self.vCorpus):
-      nImages += len(vfeat)
-      if vfeat.shape[-1] == 0:
-        print('example {} is empty:'.format(ex), vfeat.shape) 
-        self.vCorpus[ex] = np.zeros((1, self.imageFeatDim))
+      self.vCorpus = [np.concatenate((0.1*np.random.normal(size=(1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
 
     aNpz = np.load(speechFeatFile)
     if self.durationFile:
@@ -78,13 +77,23 @@ class ImageAudioGaussianHMMDiscoverer:
     self.audioFeatDim = self.aCorpus[0].shape[-1]
     for afeat in self.aCorpus:
       nTokens += afeat.shape[0]
+
+    for ex, (afeat, vfeat) in enumerate(zip(self.aCorpus, self.vCorpus)):
+      nImages += len(vfeat)
+      if len(afeat) == 0:
+        logger.info('example {} is empty'.format(ex))
+        self.aCorpus[ex] = np.zeros((1, self.audioFeatDim))
+
+      if vfeat.shape[0] == 0:
+        logger.info('example {} is empty'.format(ex)) 
+        self.vCorpus[ex] = np.zeros((1, self.imageFeatDim))
            
-    print('----- Corpus Summary -----')
-    print('Number of examples: ', len(self.aCorpus))
-    print('Number of phonetic categories: ', self.nPhones)
-    print('Number of phones: ', nTokens)
-    print('Number of objects: ', nImages)
-    print("Number of word clusters: ", self.nWords)
+    logger.info('----- Corpus Summary -----')
+    logger.info('Number of examples: %d' % len(self.aCorpus))
+    logger.info('Number of phonetic categories: %d' % self.nPhones)
+    logger.info('Number of phones: %d' % nTokens)
+    logger.info('Number of objects: %d' % nImages)
+    logger.info('Number of word clusters: %d' % self.nWords)
     
   def initializeModel(self, alignments=None):
     begin_time = time.time()
@@ -121,23 +130,41 @@ class ImageAudioGaussianHMMDiscoverer:
     else:
       self.phoneProbs = 1. / self.nPhones * np.ones((self.nWords, self.nPhones))
 
-    # XXX    
     if self.visualAnchorFile:
-      self.musV = np.load(self.visualAnchorFile)
-      self.musA = np.load(self.audioAnchorFile)
+      if self.visualAnchorFile.split('.')[-1] == 'json':
+        self.musV = np.zeros((self.nWords, self.imageFeatDim))
+        with open(self.visualAnchorFile, 'r') as f:
+          anchorDict = json.load(f)
+        partition = anchorDict['partition']
+        partialLabels = np.asarray(anchorDict['labels'])
+        indicesLarge = np.nonzero(1-partialLabels)[0]
+        indicesSmall = np.nonzero(partialLabels)[0] 
+        nWordsLarge, nWordsSmall = len(partition[0]), len(partition[1])
+        logger.info('indicesLarge: ' + str(indicesLarge))
+        self.musV[:nWordsLarge] = KMeans(n_clusters=nWordsLarge).fit(np.concatenate(self.vCorpus, axis=0)[indicesLarge]).cluster_centers_
+        if self.hasNull:
+          self.musV[-nWordsSmall-1:-1] = KMeans(n_clusters=nWordsSmall).fit(np.concatenate(self.vCorpus, axis=0)[indicesSmall]).cluster_centers_
+        else:
+          self.musV[-nWordsSmall:] = KMeans(n_clusters=nWordsSmall).fit(np.concatenate(self.vCorpus, axis=0)[indicesSmall]).cluster_centers_
+      else:
+        self.musV = np.load(self.visualAnchorFile)
     else:
+      self.musV = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
+
+    if self.audioAnchorFile:
+      self.musA = np.load(self.audioAnchorFile)
       # self.musV = 10. * np.eye(self.nWords)
       # self.musA = 10. * np.eye(self.nWords)
-      self.musV = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
+    else:
       self.musA = KMeans(n_clusters=self.nPhones).fit(np.concatenate(self.aCorpus, axis=0)).cluster_centers_
-    print("Finish initialization after %0.3f s" % (time.time() - begin_time))
+    logger.info("Finish initialization after %0.3f s" % (time.time() - begin_time))
 
   def trainUsingEM(self, numIterations=20, writeModel=False, warmStart=False, convergenceEpsilon=0.01, printStatus=True, debug=False):
     if not warmStart:
       self.initializeModel()
     
     if writeModel:
-      self.printModel('initial_model.txt')
+      self.printModel(self.modelName + 'initial_model.txt')
     
     maxLikelihood = -np.inf
     likelihoods = np.zeros((numIterations,))
@@ -154,7 +181,7 @@ class ImageAudioGaussianHMMDiscoverer:
       if printStatus:
         likelihood = self.computeAvgLogLikelihood()
         likelihoods[epoch] = likelihood
-        print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
+        print('Epoch %d Average Log Likelihood: %.1f' % (epoch, likelihood))
         if writeModel and likelihood > maxLikelihood:
           self.printModel(self.modelName + '_iter='+str(epoch)+'.txt')
           self.printAlignment(self.modelName+'_iter='+str(epoch)+'_alignment', debug=False)                
@@ -705,7 +732,8 @@ class ImageAudioGaussianHMMDiscoverer:
         f.write('\n')
 
 if __name__ == '__main__':
-  tasks = [3]
+  logging.basicConfig(filename='image_audio_imbalanced.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
+  tasks = [4]
   #----------------------------#
   # Word discovery on tiny.txt #
   #----------------------------#
@@ -727,12 +755,16 @@ if __name__ == '__main__':
   #-------------------------------#
   if 1 in tasks:
     featType = 'gaussian'    
-    phoneCaptionFile = '../data/mscoco/src_mscoco_subset_subword_level_power_law.txt'
-    speechFeatureFile = '../data/mscoco/mscoco_subset_subword_level_phone_gaussian_vectors.npz'
-    imageConceptFile = '../data/mscoco/trg_mscoco_subset_subword_level_power_law.txt'
-    imageFeatureFile = '../data/mscoco/mscoco_subset_subword_level_concept_gaussian_vectors.npz'
-    conceptIdxFile = 'exp/dec_30_mscoco/concept2idx.json'
-    
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
+    phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_captions.txt'
+    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
+    imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+    # phoneCaptionFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_captions.txt' # '../data/mscoco/src_mscoco_subset_subword_level_power_law.txt'
+    # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_gaussian_vectors.npz' # '../data/mscoco/mscoco_subset_subword_level_phone_gaussian_vectors.npz'
+    # imageConceptFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_image_captions.txt'  
+    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_concept_gaussian_vectors.npz'
+    conceptIdxFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/concept2idx.json'
+
     vCorpus = {}
     concept2idx = {}
     nTypes = 0
@@ -751,6 +783,8 @@ if __name__ == '__main__':
     centroids = 10 * np.random.normal(size=(nTypes, imgFeatDim)) 
      
     for ex, vSenStr in enumerate(vCorpusStr):
+      # if ex > 59: # XXX
+      #   break
       N = len(vSenStr)
       if featType == 'one-hot':
         vSen = np.zeros((N, nTypes))
@@ -786,6 +820,8 @@ if __name__ == '__main__':
     centroids = 10 * np.random.normal(size=(nPhones, spFeatDim)) 
      
     for ex, aSenStr in enumerate(aCorpusStr):
+      # if ex > 59: # XXX
+      #   break
       T = len(aSenStr)
       if featType == 'one-hot':
         aSen = np.zeros((T, nPhones))
@@ -817,21 +853,80 @@ if __name__ == '__main__':
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(30, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', debug=False)
-  #---------------------------#
+  #--------------------------#
   # Word discovery on MSCOCO #
-  #---------------------------#
+  #--------------------------#
   if 3 in tasks:      
-    speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_kamper_embeddings.npz'
-    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_res34_embed512dim.npz'
-    # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/embedding_mats.npz'
-    # imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/v_embedding_mats.npz'
+    speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/embedding_mats.npz'
+    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/v_embedding_mats.npz'
     durationFile = None 
     dsRate = 1
 
-    modelConfigs = {'dataset': 'mscoco_imbalanced', 'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
-    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_nomerge/image_audio_balanced' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
+    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug1_mscoco2k_wbd_%s_momentum%.2f_lr%.5f_gaussiansoftmax/image_audio' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(20, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', debug=False)
+  #-------------------------------------#
+  # Word discovery on MSCOCO Imbalanced #
+  #-------------------------------------#
+  if 4 in tasks: 
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
+    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
+    imageFeatureFile = datapath + 'train2014/mscoco_train_res34_embed512dim.npz'
+    imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+    partialLabelFile = 'mscoco_train_labels_partial.json'
+    concept2count_file = datapath + 'train2014/class2count.json'
+    # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_kamper_embeddings.npz'
+    # imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_res34_embed512dim.npz'
+    # imageConceptFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_image_captions.txt'  
+    # partialLabelFile = 'mscoco_imbalanced_labels_partial.json'
+    # concept2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
+    durationFile = None
+    dsRate = 1
+
+    modelConfigs = {'dataset': 'mscoco_train', 'has_null': True, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
+    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'])
+    if not os.path.isdir(expDir):
+      os.mkdir(expDir)
+    modelConfigs['visual_anchor_file'] = expDir + partialLabelFile
+    logger.info(expDir)
+    
+    with open(concept2count_file, 'r') as f:
+      concept2count = json.load(f)
+    
+    # XXX 
+    topk = 1 # XXX
+    partialLabels = {'partition':[[], []], 'labels':[]}
+    sorted_concepts = sorted(concept2count, key=lambda x:concept2count[x], reverse=True)
+    partialLabels['partition'][0] = sorted_concepts[:topk]
+    partialLabels['partition'][1] = sorted_concepts[topk:]
+
+    with open(imageConceptFile, 'r') as f_c:
+      vCorpus = {}
+      concept2idx = {}
+      nTypes = 0
+    
+      vCorpusStr = []
+      i = 0
+      for line in f_c:
+        # XXX
+        # if i > 99:
+        #   break
+        i += 1
+        vSen = line.strip().split()
+        vCorpusStr.append(vSen)
+        for vWord in vSen:
+          if vWord not in partialLabels['partition'][0]:
+            partialLabels['labels'].append(1) 
+          else:
+            partialLabels['labels'].append(0) 
+
+    with open(expDir + partialLabelFile, 'w') as f_l:
+      json.dump(partialLabels, f_l, sort_keys=True, indent=4)
+
+    model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=expDir + 'image_audio')
+    model.trainUsingEM(20, writeModel=True, debug=False)
+    model.printAlignment(expDir+'image_audio_alignment', debug=False)
