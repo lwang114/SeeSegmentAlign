@@ -34,6 +34,7 @@ class ImageAudioGaussianHMMDiscoverer:
     self.isExact = modelConfigs.get('is_exact', False)
     self.durationFile = modelConfigs.get('duration_file', None) 
     self.downsampleRate = modelConfigs.get('downsample_rate', 1)
+    self.multipleCaptions = modelConfigs.get('multiple_captions', False)
     self.init = {}
     self.trans = {}                 # trans[l][i][j] is the probabilities that target word e_j is aligned after e_i is aligned in a target sentence e of length l  
     self.lenProb = {}
@@ -74,15 +75,24 @@ class ImageAudioGaussianHMMDiscoverer:
       self.aCorpus = [aNpz[k] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX
 
     nTokens = 0
-    self.audioFeatDim = self.aCorpus[0].shape[-1]
+    if self.multipleCaptions:
+      self.audioFeatDim = self.aCorpus[0][0].shape[-1]
+    else:
+      self.audioFeatDim = self.aCorpus[0].shape[-1]
     for afeat in self.aCorpus:
       nTokens += afeat.shape[0]
 
     for ex, (afeat, vfeat) in enumerate(zip(self.aCorpus, self.vCorpus)):
       nImages += len(vfeat)
-      if len(afeat) == 0:
-        logger.info('example {} is empty'.format(ex))
-        self.aCorpus[ex] = np.zeros((1, self.audioFeatDim))
+      if self.multipleCaptions:
+        for i_a in range(len(afeat)):
+          if len(afeat[i_a]) == 0:
+            logger.info('example {}, caption {} is empty'.format(ex, i_a))
+            self.aCorpus[ex][i_a] = np.zeros((1, self.audioFeatDim))
+      else:
+        if len(afeat) == 0:
+          logger.info('example {} is empty'.format(ex))
+          self.aCorpus[ex] = np.zeros((1, self.audioFeatDim))
 
       if vfeat.shape[0] == 0:
         logger.info('example {} is empty'.format(ex)) 
@@ -156,7 +166,11 @@ class ImageAudioGaussianHMMDiscoverer:
       # self.musV = 10. * np.eye(self.nWords)
       # self.musA = 10. * np.eye(self.nWords)
     else:
-      self.musA = KMeans(n_clusters=self.nPhones).fit(np.concatenate(self.aCorpus, axis=0)).cluster_centers_
+      if self.multipleCaptions:
+        aCorpusConcat = [np.concatenate(aSen, axis=0) for aSen in self.aCorpus]
+        self.musA = KMeans(n_clusters=self.nPhones).fit(np.concatenate(aCorpusConcat, axis=0)).cluster_centers_
+      else:
+        self.musA = KMeans(n_clusters=self.nPhones).fit(np.concatenate(self.aCorpus, axis=0)).cluster_centers_
     logger.info("Finish initialization after %0.3f s" % (time.time() - begin_time))
 
   def trainUsingEM(self, numIterations=20, writeModel=False, warmStart=False, convergenceEpsilon=0.01, printStatus=True, debug=False):
@@ -172,7 +186,12 @@ class ImageAudioGaussianHMMDiscoverer:
       begin_time = time.time()
       initCounts = {m: np.zeros((m,)) for m in self.lenProb}
       transCounts = {m: np.zeros((m, m)) for m in self.lenProb}
-      conceptPhoneCounts = [np.zeros((aSen.shape[0], self.nWords, self.nPhones)) for aSen in self.aCorpus]      
+      self.captIds = []
+      if self.multipleCaptions:
+        self.captIds = [random.randint(0, len(aSen)-1) for aSen in self.aCorpus]
+        conceptPhoneCounts = [np.zeros((aSen[self.captIds[ex]].shape[0], self.nWords, self.nPhones)) for ex, aSen in enumerate(self.aCorpus)] 
+      else:
+        conceptPhoneCounts = [np.zeros((aSen.shape[0], self.nWords, self.nPhones)) for aSen in self.aCorpus]      
       phoneCounts = np.zeros((self.nWords, self.nPhones))
       conceptCounts = [np.zeros((vSen.shape[0], self.nWords)) for vSen in self.vCorpus]
       self.conceptCounts = conceptCounts
@@ -188,6 +207,8 @@ class ImageAudioGaussianHMMDiscoverer:
           maxLikelihood = likelihood
       
       for ex, (vSen, aSen) in enumerate(zip(self.vCorpus, self.aCorpus)):
+        if self.multipleCaptions:
+          aSen = aSen[self.captIds[ex]]
         forwardProbs, scales = self.forward(vSen, aSen, debug=False)
         backwardProbs = self.backward(vSen, aSen, scales, debug=False) 
         if debug:
@@ -204,13 +225,9 @@ class ImageAudioGaussianHMMDiscoverer:
       self.conceptPhoneCounts = conceptPhoneCounts
       # Normalize
       for m in self.lenProb:
-        # XXX
-        # self.init[m] = np.maximum(initCounts[m], EPS) / np.sum(np.maximum(initCounts[m], EPS)) 
         self.init[m] = initCounts[m] / np.sum(initCounts[m]) 
 
       for m in self.lenProb:
-        # XXX
-        # totCounts = np.sum(np.maximum(transCounts[m], EPS), axis=1)
         totCounts = np.sum(transCounts[m], axis=1)
 
         for s in range(m):
@@ -218,12 +235,8 @@ class ImageAudioGaussianHMMDiscoverer:
             # Not updating the transition arc if it is not used          
             self.trans[m][s] = self.trans[m][s]
           else: 
-            # XXX
-            # self.trans[m][s] = np.maximum(transCounts[m][s], EPS) / totCounts[s]
             self.trans[m][s] = transCounts[m][s] / totCounts[s]
 
-      # XXX
-      # normFactor = np.sum(np.maximum(phoneCounts, EPS), axis=-1) 
       normFactor = np.sum(phoneCounts, axis=-1) 
       self.phoneProbs = (phoneCounts.T / normFactor).T
       
@@ -489,9 +502,7 @@ class ImageAudioGaussianHMMDiscoverer:
       musNext = np.zeros((self.nWords, self.imageFeatDim))
       Delta = conceptCount - zProb 
       musNext += Delta.T @ vSen
-      normFactor += np.sum(Delta, axis=0)
-      # XXX
-      # normFactor = np.sign(normFactor) * np.maximum(np.abs(normFactor), EPS)  
+      normFactor += np.sum(Delta, axis=0) 
       self.musV = (musNext.T / normFactor).T
     else:
       dmus = np.zeros((self.nWords, self.imageFeatDim))
@@ -509,7 +520,9 @@ class ImageAudioGaussianHMMDiscoverer:
   def updateSoftmaxWeightA(self, conceptPhoneCounts, debug=False):
     if self.isExact:
       musNext = np.zeros((self.nPhones, self.audioFeatDim))
-      for aSen, conceptPhoneCount in zip(self.aCorpus, conceptPhoneCounts):
+      for ex, (aSen, conceptPhoneCount) in enumerate(zip(self.aCorpus, conceptPhoneCounts)):
+        if self.multipleCaptions:
+          aSen = aSen[self.captIds[ex]]
         phProb = self.softmaxLayerA(aSen, debug=debug)
         Delta = np.sum(conceptPhoneCount, axis=1) - phProb 
         musNext += Delta.T @ aSen
@@ -520,7 +533,9 @@ class ImageAudioGaussianHMMDiscoverer:
     else:
       dmus = np.zeros((self.nPhones, self.audioFeatDim))
       normFactor = np.zeros((self.nWords,))
-      for aSen, conceptPhoneCount in zip(self.aCorpus, conceptPhoneCounts):
+      for ex, (aSen, conceptPhoneCount) in enumerate(zip(self.aCorpus, conceptPhoneCounts)):
+        if self.multipleCaptions:
+          aSen = aSen[self.captIds[ex]]
         phProb = self.softmaxLayerA(aSen, debug=debug)
         Delta = np.sum(conceptPhoneCount, axis=1) - phProb 
         dmus += 1. / (len(self.aCorpus) * self.width) * (Delta.T @ aSen - (np.sum(Delta, axis=0) * self.musA.T).T) 
@@ -584,11 +599,17 @@ class ImageAudioGaussianHMMDiscoverer:
   def computeAvgLogLikelihood(self):
     ll = 0.
     for vSen, aSen in zip(self.vCorpus, self.aCorpus):
-      forwardProb, scales = self.forward(vSen, aSen)
-      #backwardProb = self.backward(tSen, fSen)
-      # XXX
-      # likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
-      likelihood = np.sum(np.log(np.maximum(scales, EPS)))
+      if self.multipleCaptions:
+        likelihood = 0.
+        for aCapt in aSen:
+          forwardProb, scales = self.forward(vSen, aCapt)
+          likelihood += np.sum(np.log(np.maximum(scales, EPS))) / len(aSen) 
+      else:
+        forwardProb, scales = self.forward(vSen, aSen)
+        #backwardProb = self.backward(tSen, fSen)
+        # XXX
+        # likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
+        likelihood = np.sum(np.log(np.maximum(scales, EPS)))
       ll += likelihood
     return ll / len(self.vCorpus)
 
@@ -633,16 +654,29 @@ class ImageAudioGaussianHMMDiscoverer:
 
   def cluster(self, aSen, vSen, alignment):
     nState = len(vSen)
-    T = len(aSen)
-    probs_z_given_y = self.softmaxLayerV(vSen)
-    probs_ph_given_x = self.softmaxLayerA(aSen) 
-    probs_x_given_z = (self.phoneProbs @ probs_ph_given_x.T).T
     scores = np.zeros((nState, self.nWords))
-    scores += probs_z_given_y
-    for i in range(nState):
-      for t in range(T):
-        if alignment[t] == i:
-          scores[i] *= probs_x_given_z[t]
+    if self.multipleCaptions:
+      for aCapt, curAlign in zip(aSen, alignment):
+        T = len(aCapt)
+        probs_z_given_y = self.softmaxLayerV(vSen)
+        probs_ph_given_x = self.softmaxLayerA(aCapt) 
+        probs_x_given_z = (self.phoneProbs @ probs_ph_given_x.T).T
+        scores += probs_z_given_y
+        for i in range(nState):
+          for t in range(T):
+            if curAlign[t] == i:
+              scores[i] *= probs_x_given_z[t]
+    else:
+      T = len(aSen)
+      probs_z_given_y = self.softmaxLayerV(vSen)
+      probs_ph_given_x = self.softmaxLayerA(aSen) 
+      probs_x_given_z = (self.phoneProbs @ probs_ph_given_x.T).T 
+      scores += probs_z_given_y
+      for i in range(nState):
+        for t in range(T):
+          if alignment[t] == i:
+            scores[i] *= probs_x_given_z[t]
+
     return np.argmax(scores, axis=1).tolist(), scores.tolist()
     
   def printModel(self, fileName):
@@ -675,7 +709,16 @@ class ImageAudioGaussianHMMDiscoverer:
     #  print(len(self.aCorpus))
     phone_units = {}
     for i, (aSen, vSen) in enumerate(zip(self.aCorpus, self.vCorpus)):
-      alignment, alignProbs = self.align(aSen, vSen, debug=debug)
+      if self.multipleCaptions:
+        alignment = []
+        alignProbs = []
+        for aCapt in aSen:
+          curAlignment, curAlignProbs = self.align(aCapt, vSen, debug=debug)
+          alignment.append(curAlignment)
+          alignProbs.append(curAlignProbs)
+      else:
+        alignment, alignProbs = self.align(aSen, vSen, debug=debug)
+      
       clustersV, clusterProbs = self.cluster(aSen, vSen, alignment)
       clustersA = np.argmax(np.sum(self.conceptPhoneCounts[i], axis=1), axis=-1).tolist()
       conceptAlignment = np.argmax(np.sum(self.conceptPhoneCounts[i], axis=-1), axis=-1).tolist() 
@@ -695,30 +738,39 @@ class ImageAudioGaussianHMMDiscoverer:
             'is_phoneme': isPhoneme
           }
       aligns.append(align_info)
-      for a in alignment:
-        f.write('%d ' % a)
-      f.write('\n\n')
-      prev_align_idx = -1
-      start = 0
-      pair_id = 'arr_%d' % i 
-      for t, align_idx in enumerate(alignment):
-        if t == 0:
-          prev_align_idx = align_idx
-        
-        if prev_align_idx != align_idx:
-          if self.hasNull and prev_align_idx == 0:
+      
+      if self.multipleCaptions:
+        for curAlign in alignment:  
+          for a in curAlign:
+            f.write('%d ' % a)
+          f.write('\n')
+        f.write('\n')
+      else:
+        for a in alignment:
+          f.write('%d ' % a)
+        f.write('\n\n')
+
+        prev_align_idx = -1
+        start = 0
+        pair_id = 'arr_%d' % i 
+        for t, align_idx in enumerate(alignment):
+          if t == 0:
+            prev_align_idx = align_idx
+          
+          if prev_align_idx != align_idx:
+            if self.hasNull and prev_align_idx == 0:
+              prev_align_idx = align_idx
+              start = t
+              continue
+            if clustersV[prev_align_idx] not in phone_units:
+              phone_units[clustersV[prev_align_idx]] = ['%s %d %d\n' % (pair_id, start, t)]
+            else:
+              phone_units[clustersV[prev_align_idx]].append('%s %d %d\n' % (pair_id, start, t))
             prev_align_idx = align_idx
             start = t
-            continue
-          if clustersV[prev_align_idx] not in phone_units:
-            phone_units[clustersV[prev_align_idx]] = ['%s %d %d\n' % (pair_id, start, t)]
-          else:
-            phone_units[clustersV[prev_align_idx]].append('%s %d %d\n' % (pair_id, start, t))
-          prev_align_idx = align_idx
-          start = t
-        elif t == len(alignment) - 1:
-          if self.hasNull and prev_align_idx == 0:
-            continue
+          elif t == len(alignment) - 1:
+            if self.hasNull and prev_align_idx == 0:
+              continue
     f.close()
     
     # Write to a .json file for evaluation
@@ -754,10 +806,15 @@ if __name__ == '__main__':
   # Feature extraction for MSCOCO #
   #-------------------------------#
   if 1 in tasks:
+    multipleCaptions = True
     featType = 'gaussian'    
     datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
-    phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_captions.txt'
-    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
+    if multipleCaptions:
+      phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_multiple_captions.txt'
+      speechFeatureFile = datapath + 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
+    else:
+      phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_captions.txt'
+      speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
     imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
     # phoneCaptionFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_captions.txt' # '../data/mscoco/src_mscoco_subset_subword_level_power_law.txt'
     # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_gaussian_vectors.npz' # '../data/mscoco/mscoco_subset_subword_level_phone_gaussian_vectors.npz'
@@ -781,9 +838,8 @@ if __name__ == '__main__':
     # Generate nTypes different clusters
     imgFeatDim = 2
     centroids = 10 * np.random.normal(size=(nTypes, imgFeatDim)) 
-     
     for ex, vSenStr in enumerate(vCorpusStr):
-      # if ex > 59: # XXX
+      # if ex > 99: # XXX
       #   break
       N = len(vSenStr)
       if featType == 'one-hot':
@@ -804,34 +860,61 @@ if __name__ == '__main__':
     aCorpus = {}
     phone2idx = {}
     nPhones = 0
+
     with open(phoneCaptionFile, 'r') as f:
       aCorpusStr = []
       for line in f:
-        aSen = line.strip().split()
-        aCorpusStr.append(aSen)
-        for aWord in aSen:
-          if aWord not in phone2idx:
-            phone2idx[aWord] = nPhones
-            nPhones += 1  
+        if not multipleCaptions:
+          aSen = line.strip().split()
+          aCorpusStr.append(aSen)
+          for aWord in aSen:
+            if aWord not in phone2idx:
+              phone2idx[aWord] = nPhones
+              nPhones += 1  
+        else:
+          aSen = line.strip().split(',')
+          aCorpusStr.append(aSen)
+          for aCapt in aSen:
+            for aWord in aCapt.split():
+              if aWord not in phone2idx:
+                phone2idx[aWord] = nPhones
+                nPhones += 1  
     print(nPhones)
 
     # Generate nPhones different clusters
     spFeatDim = 2
     centroids = 10 * np.random.normal(size=(nPhones, spFeatDim)) 
-     
+    
     for ex, aSenStr in enumerate(aCorpusStr):
-      # if ex > 59: # XXX
+      # if ex > 99: # XXX
       #   break
-      T = len(aSenStr)
-      if featType == 'one-hot':
-        aSen = np.zeros((T, nPhones))
-        for i, aWord in enumerate(aSenStr):
-          aSen[i, phone2idx[aWord]] = 1.
-      elif featType == 'gaussian':
-        aSen = np.zeros((T, spFeatDim))
-        for i, aWord in enumerate(aSenStr):
-          aSen[i] = centroids[phone2idx[aWord]] + 0.1 * np.random.normal(size=(spFeatDim,))
-      aCorpus['arr_'+str(ex)] = aSen
+
+      if multipleCaptions:
+        aSen = []
+        for aCaptStr in aSenStr:
+          aCaptStr = aCaptStr.split()
+          T = len(aCaptStr)
+          if featType == 'one-hot':
+            aCapt = np.zeros((T, nPhones))
+            for i, aWord in enumerate(aCaptStr):
+              aCapt[i, phone2idx[aWord]] = 1.
+          elif featType == 'gaussian':
+            aCapt = np.zeros((T, spFeatDim))
+            for i, aWord in enumerate(aCaptStr):
+              aCapt[i] = centroids[phone2idx[aWord]] + 0.1 * np.random.normal(size=(spFeatDim,))
+          aSen.append(aCapt)
+        aCorpus['arr_'+str(ex)] = aSen
+      else:
+        T = len(aSenStr)
+        if featType == 'one-hot':
+          aSen = np.zeros((T, nPhones))
+          for i, aWord in enumerate(aSenStr):
+            aSen[i, phone2idx[aWord]] = 1.
+        elif featType == 'gaussian':
+          aSen = np.zeros((T, spFeatDim))
+          for i, aWord in enumerate(aSenStr):
+            aSen[i] = centroids[phone2idx[aWord]] + 0.1 * np.random.normal(size=(spFeatDim,))
+        aCorpus['arr_'+str(ex)] = aSen
     
     np.savez(speechFeatureFile, **aCorpus)
     '''
@@ -874,7 +957,7 @@ if __name__ == '__main__':
   #-------------------------------------#
   if 4 in tasks: 
     datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
-    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
+    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
     imageFeatureFile = datapath + 'train2014/mscoco_train_res34_embed512dim.npz'
     imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
     partialLabelFile = 'mscoco_train_labels_partial.json'
@@ -887,8 +970,8 @@ if __name__ == '__main__':
     durationFile = None
     dsRate = 1
 
-    modelConfigs = {'dataset': 'mscoco_train', 'has_null': True, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
-    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'])
+    modelConfigs = {'dataset': 'mscoco_train', 'has_null': True, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.0, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate, 'multiple_captions': True} # XXX
+    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug7_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'])
     if not os.path.isdir(expDir):
       os.mkdir(expDir)
     modelConfigs['visual_anchor_file'] = expDir + partialLabelFile
@@ -896,8 +979,7 @@ if __name__ == '__main__':
     
     with open(concept2count_file, 'r') as f:
       concept2count = json.load(f)
-    
-    # XXX 
+     
     topk = 1 # XXX
     partialLabels = {'partition':[[], []], 'labels':[]}
     sorted_concepts = sorted(concept2count, key=lambda x:concept2count[x], reverse=True)
@@ -913,9 +995,9 @@ if __name__ == '__main__':
       i = 0
       for line in f_c:
         # XXX
-        # if i > 99:
-        #   break
         i += 1
+        # if not (i > 2040 and i <= 2140):
+        #   continue
         vSen = line.strip().split()
         vCorpusStr.append(vSen)
         for vWord in vSen:
@@ -923,10 +1005,12 @@ if __name__ == '__main__':
             partialLabels['labels'].append(1) 
           else:
             partialLabels['labels'].append(0) 
+      
+      print('len(partialLabels[labels]): ' + str(len(partialLabels['labels'])))
 
     with open(expDir + partialLabelFile, 'w') as f_l:
       json.dump(partialLabels, f_l, sort_keys=True, indent=4)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=expDir + 'image_audio')
-    model.trainUsingEM(20, writeModel=True, debug=False)
+    model.trainUsingEM(30, writeModel=True, debug=False)
     model.printAlignment(expDir+'image_audio_alignment', debug=False)
