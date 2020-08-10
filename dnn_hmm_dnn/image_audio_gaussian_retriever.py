@@ -1,10 +1,11 @@
-from image_phone_gaussian_crp_word_discoverer import *
+from image_audio_gaussian_discoverer_imbalanced import *
 import os
+logger = logging.getLogger(__name__)
 
-class MultimodalCRPRetriever:
-  def __init__(self, speechFeatureFile, imageFeatureFile, splitFile, modelConfigs, modelName='multimodal_crp'):
+class MultimodalDNNHMMDNNRetriever:
+  def __init__(self, speechFeatureFile, imageFeatureFile, splitFile, modelConfigs, modelName='multimodal_dnnhmmdnn'):
     self.modelName = modelName
-    self.aligner = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, splitFile=splitFile)
+    self.aligner = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs)
     self.aligner.initializeModel()
     self.img_database = self.aligner.vCorpus
     self.phn_database = self.aligner.aCorpus
@@ -46,7 +47,7 @@ class MultimodalCRPRetriever:
     
   def retrieve_all(self):
     n = len(self.testIndices)
-    print('Size of the database: ', n)
+    logging.info('Size of the database: ' + str(n))
     scores = np.zeros((n, n))
     begin_time = time.time()
     for i, aIdx in enumerate(self.testIndices):
@@ -54,7 +55,7 @@ class MultimodalCRPRetriever:
       score_i = self.retrieve(aSen)
       scores[i] = np.asarray(score_i)
       if (i + 1) % 10 == 0:
-        print('Takes %.2f to retrieve %d query' % (time.time() - begin_time, i + 1))
+        logging.info('Takes %.2f to retrieve %d query' % (time.time() - begin_time, i + 1))
         self.evaluate(scores[:i+1], outFile='tmp')
     return scores 
   
@@ -119,22 +120,52 @@ class MultimodalCRPRetriever:
     fp2 = open(outFile + '_captioning.txt.readable', 'w')
     for i in range(n):
       P_kbest_str = ' '.join([str(idx) for idx in P_kbest[:, i]])
-      phns = '\n'.join([' '.join(self.phn_database[self.testIndices[idx]]) for idx in P_kbest[:, i]])
       fp1.write(P_kbest_str + '\n\n')
-      fp2.write(phns + '\n\n')
+      fp2.write(P_kbest_str + '\n\n')
     fp1.close()
     fp2.close()  
 
 if __name__ == '__main__':
-  speechFeatureFile = '../data/flickr30k_captions_phones.txt'
-  # 'mscoco20k_phone_captions.txt'
-  imageFeatureFile = '../data/flickr30k_res34_embeds.npz' 
-  # '../data/mscoco20k_res34_embed512dim.npz'  
-  splitFile = '../data/flickr30k_captions_split.txt'
-  # '../data/mscoco20k_split_0_retrieval.txt'
-  # modelDir = 'exp/flickr_end-to-end_res34_ground_truth_momentum0.0_lr0.10000_width1.000_alpha0_1.000_nconcepts80_may31/end-to-end' 
-  #'exp/mscoco20k_end-to-end_res34_ground_truth_momentum0.0_lr0.10000_width1.000_alpha0_1.000_nconcepts65_may23/end-to-end_split_0'
-  expDir = 'exp/may31_flickr30k_retrieval_split/'
+  logger = logging.basicConfig(filename='dnnhmmdnn_retriever.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
+  
+  datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
+  phoneCaptionFile = datapath + 'val2014/mscoco_val_phone_captions.txt'
+  speechFeatureFile = datapath + 'val2014/mscoco_val_phone_gaussian_vectors.npz'
+  imageFeatureFile = datapath + 'val2014/mscoco_val_res34_embed512dim.npz'
+  splitFile = datapath + 'val2014/mscoco_val_split.txt' 
+  modelDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug7_mscoco_train_synthetic_momentum0.00_lr0.00000_gaussiansoftmax_mergelabel/image_audio_iter=7.txt'
+  expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug8_mscoco_val_retrieval_split/'
+
+  aCorpus = {}
+  phone2idx = {}
+  nPhones = 0
+  with open(phoneCaptionFile, 'r') as f:
+    aCorpusStr = []
+    for line in f:
+      aSen = line.strip().split()
+      aCorpusStr.append(aSen)
+      for aWord in aSen:
+        if aWord not in phone2idx:
+          phone2idx[aWord] = nPhones
+          nPhones += 1  
+  print(nPhones)
+  nPhones = 49
+
+  # Generate nPhones different clusters
+  spFeatDim = 2
+  centroids = 10 * np.random.normal(size=(nPhones, spFeatDim)) 
+   
+  for ex, aSenStr in enumerate(aCorpusStr):
+    # if ex > 59: # XXX
+    #   break
+    T = len(aSenStr)
+    aSen = np.zeros((T, spFeatDim))
+    for i, aWord in enumerate(aSenStr):
+      aSen[i] = centroids[phone2idx[aWord]] + 0.1 * np.random.normal(size=(spFeatDim,))
+    aCorpus['arr_'+str(ex)] = aSen
+  
+  np.savez(speechFeatureFile, **aCorpus)
+
   if not os.path.isdir(expDir):
     print('Create a new experiment directory: ', expDir)
     os.mkdir(expDir)
@@ -142,16 +173,15 @@ if __name__ == '__main__':
   # XXX
   modelConfigs = {'has_null': True,\
                   'n_words': 80,\
-                  'learning_rate': 0.1,\
-                  'alpha_0': 1.}
-                  #,\
-                  # 'init_prob_file': modelDir + '_initialprobs.txt',\
-                  # 'trans_prob_file': modelDir + '_transitionprobs.txt',\
-                  # 'visual_anchor_file': modelDir + '_visualanchors.npy',\
-                  # 'table_file_prefix': modelDir   
-                  # }
-  modelNames = expDir + 'multimodal_crp'
-  retriever = MultimodalCRPRetriever(speechFeatureFile, imageFeatureFile, splitFile, modelConfigs, modelNames)
+                  'n_phones': 49,\
+                  'learning_rate': 0.0,\
+                  'init_prob_file': modelDir + '_initialprobs.txt',\
+                  'trans_prob_file': modelDir + '_transitionprobs.txt',\
+                  'visual_anchor_file': modelDir + '_visualanchors.npy',\
+                  'audio_anchor_file': modelDir + '_audioanchors.npy' 
+                  }
+  modelNames = expDir + 'multimodal_dnnhmmdnn'
+  retriever = MultimodalDNNHMMDNNRetriever(speechFeatureFile, imageFeatureFile, splitFile, modelConfigs, modelNames)
   # retriever.train()
   scores = retriever.retrieve_all()
   retriever.evaluate(scores, outFile=modelNames)

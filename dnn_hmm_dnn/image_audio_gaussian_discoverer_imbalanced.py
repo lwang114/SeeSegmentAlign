@@ -785,7 +785,7 @@ class ImageAudioGaussianHMMDiscoverer:
 
 if __name__ == '__main__':
   logging.basicConfig(filename='image_audio_imbalanced.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
-  tasks = [4]
+  tasks = [1, 4]
   #----------------------------#
   # Word discovery on tiny.txt #
   #----------------------------#
@@ -806,20 +806,23 @@ if __name__ == '__main__':
   # Feature extraction for MSCOCO #
   #-------------------------------#
   if 1 in tasks:
-    multipleCaptions = True
+    multipleCaptions = False # XXX
     featType = 'gaussian'    
     datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
     if multipleCaptions:
       phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_multiple_captions.txt'
       speechFeatureFile = datapath + 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
+      imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+      imageFeatureFile = datapath + 'train2014/mscoco_train_concept_gaussian_vectors.npz'
     else:
-      phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_captions.txt'
-      speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
-    imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+      phoneCaptionFile = datapath + 'train2014/mscoco_train_single_phone_captions.txt'
+      speechFeatureFile = datapath + 'train2014/mscoco_train_phone_single_gaussian_vectors.npz'
+      imageConceptFile = datapath + 'train2014/mscoco_train_single_image_captions.txt'  
+      imageFeatureFile = datapath + 'train2014/mscoco_train_concept_single_gaussian_vectors.npz'
     # phoneCaptionFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_captions.txt' # '../data/mscoco/src_mscoco_subset_subword_level_power_law.txt'
     # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_gaussian_vectors.npz' # '../data/mscoco/mscoco_subset_subword_level_phone_gaussian_vectors.npz'
     # imageConceptFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_image_captions.txt'  
-    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_concept_gaussian_vectors.npz'
+    # imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_concept_gaussian_vectors.npz'
     conceptIdxFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/concept2idx.json'
 
     vCorpus = {}
@@ -957,9 +960,9 @@ if __name__ == '__main__':
   #-------------------------------------#
   if 4 in tasks: 
     datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
-    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
-    imageFeatureFile = datapath + 'train2014/mscoco_train_res34_embed512dim.npz'
-    imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_single_gaussian_vectors.npz' # 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
+    imageFeatureFile = datapath + 'train2014/mscoco_train_concept_single_gaussian_vectors.npz' # 'train2014/mscoco_train_res34_embed512dim.npz'
+    imageConceptFile = datapath + 'train2014/mscoco_train_single_image_captions.txt'
     partialLabelFile = 'mscoco_train_labels_partial.json'
     concept2count_file = datapath + 'train2014/class2count.json'
     # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_kamper_embeddings.npz'
@@ -970,8 +973,8 @@ if __name__ == '__main__':
     durationFile = None
     dsRate = 1
 
-    modelConfigs = {'dataset': 'mscoco_train', 'has_null': True, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.0, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate, 'multiple_captions': True} # XXX
-    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug7_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'])
+    modelConfigs = {'dataset': 'mscoco_train', 'has_null': False, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.0, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate, 'multiple_captions': False} # XXX
+    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug9_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'])
     if not os.path.isdir(expDir):
       os.mkdir(expDir)
     modelConfigs['visual_anchor_file'] = expDir + partialLabelFile
@@ -996,7 +999,7 @@ if __name__ == '__main__':
       for line in f_c:
         # XXX
         i += 1
-        # if not (i > 2040 and i <= 2140):
+        # if not (i > 0 and i <= 100):
         #   continue
         vSen = line.strip().split()
         vCorpusStr.append(vSen)

@@ -6,12 +6,15 @@ from scipy.special import logsumexp
 import random
 from copy import deepcopy
 from sklearn.cluster import KMeans
+import os
+import logging
 
 NULL = "NULL"
 DEBUG = False
 EPS = 1e-100
 random.seed(1)
 np.random.seed(1)
+logger = logging.getLogger(__name__)
 
 # TODO Unify the Restaurant class
 class Restaurant:
@@ -37,7 +40,7 @@ class Restaurant:
     self.alpha0 = alpha0
 
   def seat_to(self, k, w=1):
-    self.ncustomers += 1 
+    self.ncustomers += w 
     tables = self.tables # shallow copy the tables to a local variable
     if not k in self.name2table: # add a new table
       tables.append(w)
@@ -49,7 +52,7 @@ class Restaurant:
       tables[i] += w
 
   def unseat_from(self, k, w=1):
-    self.ncustomers -= 1
+    self.ncustomers -= w
     i = self.name2table[k]
     tables = self.tables
     tables[i] -= w
@@ -111,15 +114,19 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     self.width = modelConfigs.get('width', 1.) 
     self.momentum = modelConfigs.get('momentum', 0.)
     self.lr = modelConfigs.get('learning_rate', 0.1)
-
-    self.readCorpus(speechFeatureFile, imageFeatureFile, splitFile, debug=False)
     self.initProbFile = modelConfigs.get('init_prob_file', None)
     self.transProbFile = modelConfigs.get('trans_prob_file', None)
     self.visualAnchorFile = modelConfigs.get('visual_anchor_file', None)
+    self.multipleCaptions = modelConfigs.get('multiple_captions', False)
     self.tableFilePrefix = modelConfigs.get('table_file_prefix', None)
+    self.permute = modelConfigs.get('permute', False)
     self.init = {}
     self.trans = {}                 
     self.lenProb = {}
+    
+    if self.hasNull:
+      self.nWords += 1
+    self.readCorpus(speechFeatureFile, imageFeatureFile, splitFile, debug=False)
     self.restaurants = [Restaurant(self.alpha0) for _ in range(self.nWords)]
     self.segmentations = [[] for _ in self.aCorpus]
       
@@ -133,10 +140,16 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     vNpz = np.load(imageFeatFile)
     # XXX
     self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+    if self.permute:
+      self.permutations = [np.random.permutation(len(vNpz[k])).tolist() for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+      self.vCorpus = [vFeat[p] for vFeat, p in zip(self.vCorpus, self.permutations)]
+    else:
+      self.permutations = [list(range(len(vNpz[k]))) for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))]
+
+    self.imageFeatDim = self.vCorpus[0].shape[-1]
     
     if self.hasNull: # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus] 
-    self.imageFeatDim = self.vCorpus[0].shape[-1]
     
     for ex, vfeat in enumerate(self.vCorpus):
       nImages += len(vfeat)
@@ -149,32 +162,51 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     # XXX
     i = 0
     for line in f:
-      # if i > 59:
-      #   break
       i += 1
-      aSen = line.strip().split()
-      if len(aSen) == 0:
-        print('Empty caption')
-        aSen = [NULL]
+      # if not (i > 0 and i <= 30):
+      #   continue
+      if self.multipleCaptions:
+        aSenStr = line.strip().split(',')
+        aSen = []
+        for aCaptStr in aSenStr:
+          if len(aCaptStr) == 0:
+            print('Empty caption %d' % i)
+            aSen.append([NULL])
+          else:
+            aSen.append(aCaptStr.split())
+        
+        for capt in aSen:
+          for phn in capt:
+            if phn not in self.phonePrior:
+              self.phonePrior[phn] = 1
+              nPhones += 1
+            else:
+              self.phonePrior[phn] += 1
+            totalPhones += 1
+      else:
+        aSen = line.strip().split()
+        if len(aSen) == 0:
+          print('Empty caption %d' % i)
+          aSen = [NULL]
+        for phn in aSen:
+          if phn not in self.phonePrior:
+            self.phonePrior[phn] = 1
+            nPhones += 1
+          else:
+            self.phonePrior[phn] += 1
+          totalPhones += 1
       self.aCorpus.append(aSen)
-      for phn in aSen:
-        if phn not in self.phonePrior:
-          self.phonePrior[phn] = 1
-          nPhones += 1
-        else:
-          self.phonePrior[phn] += 1
+    f.close()  
 
-        totalPhones += 1
-    f.close()
     for phn in self.phonePrior:
       self.phonePrior[phn] /= totalPhones
-    
+
     if splitFile: 
       f = open(splitFile, 'r')
       self.testIndices = [i for i, line in enumerate(f.read().strip().split('\n')) if int(line)]
       f.close() 
     else:
-      self.testIndices = []
+      self.testIndices = [] 
 
     print('----- Corpus Summary -----')
     print('Number of examples: ', len(self.aCorpus))
@@ -213,7 +245,23 @@ class ImagePhoneGaussianCRPWordDiscoverer:
       f.close()
         
     if self.visualAnchorFile:
-      self.mus = np.load(self.visualAnchorFile)
+      if self.visualAnchorFile.split('.')[-1] == 'json':
+        self.mus = np.zeros((self.nWords, self.imageFeatDim))
+        with open(self.visualAnchorFile, 'r') as f:
+          anchorDict = json.load(f)
+        partition = anchorDict['partition']
+        partialLabels = np.asarray(anchorDict['labels'])
+        indicesLarge = np.nonzero(1-partialLabels)[0]
+        indicesSmall = np.nonzero(partialLabels)[0] 
+        nWordsLarge, nWordsSmall = len(partition[0]), len(partition[1])
+        logger.info('indicesLarge: ' + str(indicesLarge))
+        self.mus[:nWordsLarge] = KMeans(n_clusters=nWordsLarge).fit(np.concatenate(self.vCorpus, axis=0)[indicesLarge]).cluster_centers_
+        if self.hasNull:
+          self.mus[-nWordsSmall-1:-1] = KMeans(n_clusters=nWordsSmall).fit(np.concatenate(self.vCorpus, axis=0)[indicesSmall]).cluster_centers_
+        else:
+          self.mus[-nWordsSmall:] = KMeans(n_clusters=nWordsSmall).fit(np.concatenate(self.vCorpus, axis=0)[indicesSmall]).cluster_centers_
+      else:
+        self.mus = np.load(self.visualAnchorFile)          
     else:
       #self.mus = 10. * np.eye(self.nWords)
       self.mus = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
@@ -236,16 +284,28 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     posteriorGaps = np.zeros((numIterations,)) 
 
     order = list(range(len(self.aCorpus)))
+    self.captIds = []
     for epoch in range(numIterations): 
       begin_time = time.time()
       initCounts = {m: np.zeros((m,)) for m in self.lenProb}
       transCounts = {m: np.zeros((m, m)) for m in self.lenProb} 
+      if self.multipleCaptions:
+        self.captIds = [random.randint(0, len(aSen)-1) for aSen in self.aCorpus]
+      else:
+        self.captIds = [0]*len(self.aCorpus)
+
       # E Step
       random.shuffle(order)
       for ex in order:
         if ex in self.testIndices:
           continue
-        aSen, vSen = self.aCorpus[ex], self.vCorpus[ex] 
+        
+        if self.multipleCaptions:
+          aSen = self.aCorpus[ex][self.captIds[ex]]
+        else:
+          aSen = self.aCorpus[ex] 
+        
+        vSen =  self.vCorpus[ex] 
         alphas = self.forward(vSen, aSen) # Forward filtering 
         if epoch > 0: 
           for t, (begin, end) in enumerate(zip(self.segmentations[ex][:-1], self.segmentations[ex][1:])): # Remove the old tables            
@@ -291,9 +351,9 @@ class ImagePhoneGaussianCRPWordDiscoverer:
         likelihood = self.computeLogLikelihood()
         likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
-        if (epoch + 1) % 5 == 0:
+        if epoch % 1 == 0:
           self.printModel(self.modelName)
-          self.printAlignment(self.modelName+'_alignment', debug=False)     
+          self.printAlignment(self.modelName+'_iter%d_alignment' % epoch, debug=False)     
         print('Epoch %d takes %.2f s to finish' % (epoch, time.time() - begin_time))
 
     np.save(self.modelName+'_likelihoods.npy', likelihoods)
@@ -446,6 +506,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
       boundaries = [t - lengths[i]] + boundaries
       segments = [candidates[i]] + segments
       t = t - lengths[i]
+    # print('boundaries={}'.format(str(boundaries)))
     return segments, boundaries
 
   # Inputs:
@@ -659,10 +720,12 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     for ex, (vSen, aSen, segmentation) in enumerate(zip(self.vCorpus, self.aCorpus, self.segmentations)):
       if ex in self.testIndices:
         continue
+      if self.multipleCaptions:
+        aSen = aSen[self.captIds[ex]]
       forwardProb = self.forward(vSen, aSen, segmentation=segmentation)
       likelihood = np.maximum(np.sum(forwardProb[-1]), EPS)
       ll += math.log(likelihood)
-    return ll
+    return ll / len(self.vCorpus)
 
   def p_init(self, segment):
     prob = 0
@@ -712,9 +775,10 @@ class ImagePhoneGaussianCRPWordDiscoverer:
 
   def cluster(self, aSen, vSen, alignment, segmentation):
     nState = len(vSen)
-    T = len(segmentation) - 1
     probs_z_given_y = self.softmaxLayer(vSen)
     prob_x_t_given_z = []
+    
+    T = len(segmentation) - 1
     for k in range(self.nWords):
       prob_x_t_given_z.append([])
       for begin, end in zip(segmentation[:-1], segmentation[1:]):
@@ -758,31 +822,37 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     f = open(filePrefix+'.txt', 'w')
     aligns = []
     for i, (aSen, vSen) in enumerate(zip(self.aCorpus, self.vCorpus)):
-      if i in self.testIndices:
-        alphas = self.forward(vSen, aSen) # Forward filtering
-        segments, boundaries = self.backwardSample(vSen, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
-        self.segmentations[i] = deepcopy(boundaries)
-      alignment, alignProbs = self.align(aSen, vSen, self.segmentations[i], debug=debug)
-      clustersV, clusterProbs = self.cluster(aSen, vSen, alignment, self.segmentations[i])
-      
-      alignmentPhoneLevel = []
-      for i_a, begin, end in zip(alignment, self.segmentations[i][:-1], self.segmentations[i][1:]):
-        alignmentPhoneLevel += [i_a] * (end - begin)
-      align_info = {
-            'index': i,
-            'image_concepts': clustersV,
-            'alignment': alignmentPhoneLevel,
-            'align_probs': alignProbs
-          }
-      aligns.append(align_info)
-      for begin, end in zip(self.segmentations[i][:-1], self.segmentations[i][1:]): 
-        segment = ','.join(aSen[begin:end])
-        f.write('%s ' % segment)
-      f.write('\n')
+      if len(self.testIndices) == 0 or (len(self.testIndices) > 0 and i in self.testIndices):
+        if self.multipleCaptions:
+          aSen = aSen[self.captIds[i]]
 
-      for a in alignment:
-        f.write('%d ' % a)
-      f.write('\n\n')
+        alphas = self.forward(vSen, aSen) # Forward filtering
+        if len(self.testIndices) > 0:
+          segments, boundaries = self.backwardSample(vSen, aSen, np.sum(alphas, axis=-1))  # Backward sampling for a segmentation
+          self.segmentations[i] = deepcopy(boundaries)
+        alignment, alignProbs = self.align(aSen, vSen, self.segmentations[i], debug=debug)
+    
+        clustersV, clusterProbs = self.cluster(aSen, vSen, alignment, self.segmentations[i])
+        alignmentPhoneLevel = []
+        for i_a, begin, end in zip(alignment, self.segmentations[i][:-1], self.segmentations[i][1:]):
+          alignmentPhoneLevel += [i_a] * (end - begin)
+        align_info = {
+          'index': i,
+          'image_concepts': clustersV,
+          'alignment': alignmentPhoneLevel,
+          'align_probs': alignProbs,
+          'permutation': self.permutations[i]
+        }
+        aligns.append(align_info)
+        f.write('Example %d, caption %d, ' % (i, self.captIds[i]))
+        for begin, end in zip(self.segmentations[i][:-1], self.segmentations[i][1:]): 
+          segment = ','.join(aSen[begin:end])
+          f.write('%s ' % segment)
+        f.write('\n')
+
+        for a in alignment:
+          f.write('%d ' % a)
+        f.write('\n\n')
     f.close()
     
     with open(filePrefix+'.json', 'w') as f: # Write to a .json file for evaluation
@@ -805,6 +875,7 @@ def draw(ws):
     return i
 
 if __name__ == '__main__':
+  logging.basicConfig(filename='magic.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
   tasks = [2]
   #----------------------------#
   # Word discovery on tiny.txt #
@@ -868,11 +939,62 @@ if __name__ == '__main__':
   # Word discovery on MSCOCO #
   #--------------------------#
   if 2 in tasks:      
-    speechFeatureFile = '../data/mscoco2k_phone_captions.txt'
-    imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1, 'alpha_0': 1.}
-    modelName = 'exp/may21_mscoco2k_gaussian_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
+    '''
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/'
+    speechFeatureFile = datapath + 'mscoco_train_phone_multiple_captions.txt'
+    imageFeatureFile = datapath + 'mscoco_train_res34_embed512dim.npz'
+    imageConceptFile = datapath + 'mscoco_train_image_captions.txt'
+    partialLabelFile = 'mscoco_train_labels_partial.json'
+    concept2count_file = datapath + 'class2count.json'
+    modelConfigs = {'has_null': False, 'n_words': 80, 'learning_rate': 0.1, 'alpha_0': 1., 'feat_type': 'res34', 'dataset': 'mscoco_train', 'multiple_captions': True}
+    '''
+    datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+    speechFeatureFile = datapath + 'mscoco2k_phone_captions.txt' 
+    imageFeatureFile = datapath + 'mscoco2k_res34_embed512dim.npz'
+    imageConceptFile = datapath + 'mscoco2k_image_captions.txt'
+    modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1, 'alpha_0': 1., 'feat_type': 'res34', 'dataset': 'mscoco2k', 'multiple_captions': False, 'permute': True} # XXX
+    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug8_%s_magic_%s_lr%.5f/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['learning_rate'])
+    if not os.path.isdir(expDir):
+      os.mkdir(expDir)
+    modelName = expDir + '%s_magic' % modelConfigs['dataset']
+    '''
+    modelConfigs['visual_anchor_file'] = expDir + partialLabelFile
+    
+    with open(concept2count_file, 'r') as f:
+      concept2count = json.load(f)
+    
+    topk = 1 # XXX
+    partialLabels = {'partition':[[], []], 'labels':[]}
+    sorted_concepts = sorted(concept2count, key=lambda x:concept2count[x], reverse=True)
+    partialLabels['partition'][0] = sorted_concepts[:topk]
+    partialLabels['partition'][1] = sorted_concepts[topk:]
+    with open(imageConceptFile, 'r') as f_c:
+      vCorpus = {}
+      concept2idx = {}
+      nTypes = 0
+    
+      vCorpusStr = []
+      i = 0
+      for line in f_c:
+        # XXX
+        i += 1
+        # if not (i > 2040 and i <= 2140):
+        #   continue
+        vSen = line.strip().split()
+        vCorpusStr.append(vSen)
+        for vWord in vSen:
+          if vWord not in partialLabels['partition'][0]:
+            partialLabels['labels'].append(1) 
+          else:
+            partialLabels['labels'].append(0) 
+      
+      # print('len(partialLabels[labels]): ' + str(len(partialLabels['labels'])))
+    
+    with open(expDir + partialLabelFile, 'w') as f_l:
+      json.dump(partialLabels, f_l, sort_keys=True, indent=4)
+    '''
+
     print(modelName)
     model = ImagePhoneGaussianCRPWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
-    model.trainUsingEM(20, writeModel=True, debug=False)
+    model.trainUsingEM(40, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', debug=False)
