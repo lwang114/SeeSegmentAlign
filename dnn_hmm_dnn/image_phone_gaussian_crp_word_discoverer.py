@@ -120,6 +120,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     self.multipleCaptions = modelConfigs.get('multiple_captions', False)
     self.tableFilePrefix = modelConfigs.get('table_file_prefix', None)
     self.permute = modelConfigs.get('permute', False)
+    self.saveAll = modelConfigs.get('save_all', False)
     self.init = {}
     self.trans = {}                 
     self.lenProb = {}
@@ -352,7 +353,10 @@ class ImagePhoneGaussianCRPWordDiscoverer:
         likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
         if epoch % 1 == 0:
-          self.printModel(self.modelName)
+          if self.saveAll:
+            self.printModel(self.modelName, epoch=epoch)
+          else:
+            self.printModel(self.modelName)
           self.printAlignment(self.modelName+'_iter%d_alignment' % epoch, debug=False)     
         print('Epoch %d takes %.2f s to finish' % (epoch, time.time() - begin_time))
 
@@ -798,7 +802,7 @@ class ImagePhoneGaussianCRPWordDiscoverer:
           scores[i] *= prob_x_t_given_z[t]
     return np.argmax(scores, axis=1).tolist(), scores.tolist() 
       
-  def printModel(self, fileName):
+  def printModel(self, fileName, epoch=None):
     initFile = open(fileName+'_initialprobs.txt', 'w')
     for nState in sorted(self.lenProb):
       for i in range(nState):
@@ -813,6 +817,10 @@ class ImagePhoneGaussianCRPWordDiscoverer:
     transFile.close()
 
     for k in range(self.nWords): # Save the restaurant counts
+      if self.saveAll:
+        if not os.path.isdir(fileName + '_crp_counts'):
+          os.mkdir(fileName + '_crp_counts')
+        self.restaurants[k].save(outputDir=fileName + '_crp_counts/concept_%d_iter%d_' % (k, epoch))
       self.restaurants[k].save(outputDir=fileName + '_concept_%d_' % k)   
    
     np.save(fileName+'_visualanchors.npy', self.mus) 

@@ -454,74 +454,68 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
   else:
     return f1_scores
 
-# TODO
-def plot_substring_histogram(exp_dir, gold_file, concept2idx_file, draw_plot=False, out_file=None):
+def plot_crp_counts(exp_dir, phone_corpus, gold_file, draw_plot=False, out_file=None, n_epochs=20, n_vocabs=10, n_steps=4, include_null=True):
+  with open(gold_file, 'r') as f:
+    gold = json.load(f)
+
+  a_corpus = []
+  with open(phone_corpus, 'r') as f:
+    for line in f:
+      a_corpus.append(line.strip().split())
+
+  # Form a list of gold vocabularies
+  gold_vocabs = set()
+  for gold_info, a_sent in zip(gold, a_corpus):
+    alignment = gold_info['alignment']
+    prev_align_idx = -1
+    start = 0
+    for t, align_idx in enumerate(alignment):
+      if t == 0:
+        prev_align_idx = align_idx
+      if prev_align_idx != align_idx:
+        if not include_null and prev_align_idx == 0:
+          prev_align_idx = align_idx
+          start = t
+          continue
+        gold_vocabs.add(' '.join(a_sent[start:t]))
+        prev_align_idx = align_idx
+        start = t
+      elif t == len(alignment) - 1:
+        if not include_null and prev_align_idx == 0:
+          continue
+        gold_vocabs.add(' '.join(a_sent[start:t+1]))
+
+  gold_vocabs = list(gold_vocabs)[:n_vocabs]
+  word2idx = {w:i for i, w in enumerate(gold_vocabs)}
+  step_size = int(n_epochs / n_steps) 
+  selected_epochs = np.arange(n_epochs)[::step_size].tolist()
+  table_counts = {'Iterations': ['Iteration {}'.format(epoch) for epoch in selected_epochs],\
+                  'Vocabularies': [gold_vocabs for _ in selected_epochs],\ 
+                  'Counts': [[0 for _ in gold_vocabs] for _ in selected_epochs]}
+  # Accumulate the table count
   for datafile in os.listdir(exp_dir):
-    if datafile.split('_')[-1] != 'alignment.txt' and datafile.split('_')[-1] != 'sentences.txt':
-      continue
     print(datafile)
-    model_name = datafile.split('_')[0] 
-    pred_file = datafile
-    # Load the predicted alignment, gold alignment and concept dictionary 
-    with open(exp_dir + pred_file, 'r') as f:
-      if pred_file.split('_')[-1] == 'alignment.txt':
-        pred = f.read().strip().split('\n')[::3]
-      else:
-        pred = f.read().strip().split('\n')
+    if datafile.split('_')[-1] == 'tables.txt':
+      epoch = int(datafile.split('_')[-2][4:])
+      if epoch % step_size == 0:
+        i_s = int(epoch/step_size)
+        with open(datafile, 'r') as f:
+          for line in f:
+            parts = line.split()
+            w = ' '.join(parts[:-1])
+            i_w = word2idx[w]
+            if w in gold_vocabs:
+              table_counts['Counts'][i_s][i_w] += float(parts[-1]) 
 
-    print(len(pred))
-         
-    with open(gold_file, 'r') as f:
-      gold = json.load(f)
+  with open('crp_counts.json', 'w') as f:
+    json.dump(table_counts, f, indent=4, sort_keys=True)
 
-    with open(concept2idx_file, 'r') as f:
-      concept2idx = json.load(f)
-
-    concept_names = [c for c in concept2idx.keys()]
-    n_c = len(concept_names)
-
-    accs = np.zeros((n_c,))
-    substring_counts = {}
-
-    for g in gold:
-      caption = g['caption']  
-      g_ali = g['alignment'] + [-1] 
-      word = []
-      for t, (a_g, a_g_next) in enumerate(zip(g_ali[:-1], g_ali[1:])):
-        if a_g != a_g_next:
-          substring_counts[','.join(word)] = {}   
-          word = [caption[a_g]]
-        else:
-          word.append(caption[a_g])
-
-    for p, g in zip(pred, gold):
-      concepts = g['image_concepts']
-      concepts = [str(concept) for concept in concepts]
-      # Skip if the concept is not in the current image-caption pair 
-      for seg in p.split():
-        for c in substring_counts:
-          if str(c) not in concepts:
-            continue
-
-          if seg in c:
-            if seg not in substring_counts[c]:
-              substring_counts[c][seg] = 1        
-            else:
-              substring_counts[c][seg] += 1
-    
-    with open('%s%s_substring_counts.json' % (exp_dir, model_name), 'w') as f:
-      json.dump(substring_counts, f, indent=4, sort_keys=True)
-
-    with open('%s%s_sorted_substrings.txt' % (exp_dir, model_name), 'w') as f:
-      for concept, counts in substring_counts.items():
-        f.write('%s: ' % concept)
-        top_substrings = sorted(counts, key=lambda x:counts[x], reverse=True)
-        for top_str in top_substrings:
-          f.write('%s(%d)' % (top_str, counts[top_str]))
-        f.write('\n')
-
-  # TODO
   # Plot the histogram
+  table_counts_dfs = pd.DataFrame(table_counts)
+  ax = sns.barplot(x='Vocabularies', y='Counts', hue='Iterations', data=table_counts_dfs)
+  plt.savefig('crp_counts')
+  plt.show()
+  plt.close()
 
 def plot_likelihood_curve(exp_dir):
   likelihood_data = {'Number of Iterations':[],\
@@ -540,8 +534,7 @@ def plot_likelihood_curve(exp_dir):
     elif model_name == 'cascade':
       likelihood_data['Model Name'] += ['Cascade HMM-CRP'] * len(likelihoods)
     elif model_name == 'end-to-end':
-      likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods)
-      likelihoods /= 19925 # 2541. # XXX normalize the likelihood
+      likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods) 
     else:
       likelihood_data['Model Name'] += [model_name] * len(likelihoods)
      
@@ -739,8 +732,9 @@ if __name__ == '__main__':
   if 4 in tasks:
     plot_likelihood_curve(args.exp_dir)
     plot_posterior_gap_curve(args.exp_dir)
-  #---------------------------------------------------------#
-  # Histogram of word length vs boundary exact match scores #
-  #---------------------------------------------------------#
+  #-------------------------------------------------#
+  # Histogram of CRP Counts vs Number of Iterations #
+  #-------------------------------------------------#
   if 5 in tasks:
-    plot_substring_histogram(args.exp_dir, gold_json, concept2idx_file, draw_plot=False, out_file=None)
+    # TODO
+    plot_crp_counts(args.exp_dir, gold_json, draw_plot=False, out_file=None)
