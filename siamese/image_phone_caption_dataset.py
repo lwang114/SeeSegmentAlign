@@ -21,6 +21,7 @@ class ImagePhoneCaptionDataset(Dataset):
     #   None
     self.max_nregions = feat_conf.get('max_num_regions', 5)
     self.max_nphones = feat_conf.get('max_num_phones', 100)
+    self.split_file = feat_conf.get('datasplit', None)
     with open(phone2idx_file, 'r') as f:
       self.phone2idx = json.load(f)
     self.phone_feats = [] 
@@ -29,6 +30,11 @@ class ImagePhoneCaptionDataset(Dataset):
 
     image_feat_npz = np.load(image_feat_file)
     self.image_feats = [image_feat_npz[k].T for k in sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))]  
+    if self.split_file
+      with open(self.split_file, 'r') as f:
+        self.selected_indices = [i for i, line in enumerate(f) if int(line)]
+    else:
+      self.selected_indices = list(range(len(self.image_feats)))
 
     # Load the phone captions
     with open(phone_feat_file, 'r') as f:
@@ -56,11 +62,11 @@ class ImagePhoneCaptionDataset(Dataset):
     print('Number of phone types: ', n_types)
 
   def __len__(self):
-    return len(self.phone_feats)
+    return len(self.selected_indices)
 
   def __getitem__(self, idx):
     if torch.is_tensor(idx):
-      idx = idx.tolist()
+      idx = [self.selected_indices[i] for i in idx.tolist()]
 
     image_feat = self.image_feats[idx]
     nregions = min(len(image_feat), self.max_nregions)

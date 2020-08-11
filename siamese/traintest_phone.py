@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pickle
+import json
 from .util import *
 
 def train(audio_model, image_model, train_loader, test_loader, args):
@@ -206,3 +207,64 @@ def validate(audio_model, image_model, val_loader, args):
           .format(A_r1=A_r1, I_r1=I_r1, N=N_examples))
 
     return recalls
+
+def align(audio_model, visual_model, val_loader, args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    batch_time = AverageMeter()
+    if not isinstance(audio_model, torch.nn.DataParallel):
+        audio_model = nn.DataParallel(audio_model)
+    if not isinstance(image_model, torch.nn.DataParallel):
+        image_model = nn.DataParallel(image_model)
+    audio_model = audio_model.to(device)
+    image_model = image_model.to(device)
+    # switch to evaluate mode
+    image_model.eval()
+    audio_model.eval()
+
+    end = time.time()
+    N_examples = val_loader.dataset.__len__()
+    image_concept_file = args.image_concept_file
+    split_file = args.datasplit
+    if not split_file:
+      selected_indices = list(range(N_examples))
+    else:
+      with open(split_file, 'r') as f:
+        selected_indices = [i for i, line in enumerate(f) if int(line)]
+    
+    with open(image_concept_file, 'r') as f:
+      image_concepts = [line.split() for line in f]
+
+    I_embeddings = [] 
+    A_embeddings = [] 
+    frame_counts = []
+    region_counts = []
+    alignments = []
+    with torch.no_grad():
+        for i, (audio_input, image_input, nphones, nregions) in enumerate(val_loader):
+            image_input = image_input.to(device)
+            audio_input = audio_input.to(device)
+
+            # compute output
+            image_output = image_model(image_input).unsqueeze(-1) # Make the image output 4D
+            audio_output = audio_model(audio_input)
+
+            image_output = image_output.to('cpu').detach()
+            audio_output = audio_output.to('cpu').detach()
+
+            pooling_ratio = round(audio_input.size(-1) / audio_output.size(-1))
+            n = image_outputs.size(0) 
+            for i_b in range(n):
+              M = computeMatchmap(image_output[i_b], audio_output[i_b])
+              alignment_out = np.argmax(M.squeeze().numpy(), axis=0)
+              alignment_resampled = [i_a for i_a in alignment_out for _ in range(pooling_ratio)]
+              alignment = alignment_resampled[:int(nphones[i_b])]
+              cur_idx = selected_indices[i*n+i_b]
+              align_info = {
+                'index': cur_idx,
+                'image_concepts': image_concepts[cur_idx],
+                'alignment': alignment
+                }
+              align_info.append(align_info)
+
+    with open(args.exp_dir+'alignment.json', 'w') as f:
+      json.dump(align_info, f, indent=4, sort_keys=True)

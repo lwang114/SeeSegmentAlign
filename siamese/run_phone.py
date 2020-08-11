@@ -52,15 +52,24 @@ parser.add_argument("--pretrained-image-model", action="store_true",
 parser.add_argument("--margin", type=float, default=1.0, help="Margin paramater for triplet loss")
 parser.add_argument("--simtype", type=str, default="MISA",
         help="matchmap similarity function", choices=["SISA", "MISA", "SIMA"])
+parser.add_argument('--image_concept_file', type=str, default=None, help='Text file of image concepts in each image-caption pair')
 
 args = parser.parse_args()
 resume = args.resume
-tasks = [0, 1]
+tasks = [2]
 
-data_dir = '../../data/'
+data_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
+
+if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
+  data_dir = data_dir + 'mscoco2k/feats/' 
+elif args.dataset == 'mscoco_train':
+  data_dir = data_dir + 'train2014/'
+  
+args.image_concept_file = data_dir + '%s_image_concepts.txt' % args.dataset 
 phone_feat_file = data_dir + '%s_phone_captions' % args.dataset
 image_feat_file = data_dir + '%s_res34_embed512dim' % args.dataset
 phone2idx_file = data_dir + '%s_phone2idx.json' % args.dataset
+
 if args.resume:
     assert(bool(args.exp_dir))
     with open("%s/args.pkl" % args.exp_dir, "rb") as f:
@@ -136,3 +145,17 @@ if 1 in tasks:
           pickle.dump(args, f)
 
   train(audio_model, image_model, train_loader, val_loader, args)
+
+if 2 in tasks: # TODO
+  with open(phone2idx_file, 'r') as f:
+    phone2idx = json.load(f)
+
+  val_loader = torch.utils.data.DataLoader(
+      dataloaders.ImagePhoneCaptionDataset(image_feat_file + '.npz', phone_feat_file + '.txt', phone2idx_file, feat_conf={'datasplit':args.datasplit}),
+      batch_size=args.batch_size, shuffle=False, num_workers=8, pin_memory=True)
+  audio_model = models.DavenetSmall(input_dim=len(phone2idx), ) 
+  image_model = models.NoOpEncoder(embedding_dim=512)
+  audio_model.load_state_dict(torch.load('{}/models/best_audio_model.%d.pth'.format(args.exp_dir)))
+  image_model.load_state_dict(torch.load('{}/models/best_image_model.%d.pth'.format(args.exp_dir)))
+  validate(audio_model, image_model, val_loader, args)
+ 
