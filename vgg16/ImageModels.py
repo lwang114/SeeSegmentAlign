@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as imagemodels
 import torch.utils.model_zoo as model_zoo
+import pretrainedmodels
 
 class Resnet18(imagemodels.ResNet):
     def __init__(self, embedding_dim=1024, pretrained=False):
@@ -147,3 +148,26 @@ class VGG16(nn.Module):
         else:
           x = self.classifier(x)
         return x
+
+class InceptionResnetv2(nn.Module):
+  def __init__(self, n_class=10, pretrained='imagenet'):
+    super(InceptionResnetv2, self).__init__()
+    model = pretrainedmodels.inceptionresnetv2(n_class=1000, pretrained=pretrained)
+    self.features = model.features
+    self.avgpool = model.avgpool_1a
+    for child in self.features.children():
+      for p in child.parameters():
+        p.requires_grad = False
+    
+    self.fc = nn.Linear(2048, n_class)
+    #self.embedder = nn.Conv2d(2048, embedding_dim, kernel_size=1, stride=1, padding=0)
+ 
+  def forward(self, x, save_features=False):
+    x = self.avgpool(self.features(x))
+    x = x.view(x.size(0), -1)
+    embed = x.view(x.size()[0], -1)
+    out = self.fc(embed)
+    if save_features:
+      return embed, out
+    else:
+      return out

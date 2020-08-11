@@ -14,6 +14,8 @@ import numpy as np
 import random
 import logging
 from util import *
+import pretrainedmodels
+import pretrainedmodels.utils as utils
 
 DEBUG = True
 random.seed(1)
@@ -32,7 +34,7 @@ parser.add_argument('--dataset', default='mscoco_130k', choices=['mscoco_130k', 
 parser.add_argument('--n_class', type=int, default=10)
 parser.add_argument('--n_epoch', type=int, default=20)
 parser.add_argument('--class2id_file', type=str, default=None)
-parser.add_argument('--image_model', type=str, default='res34', choices=['vgg16', 'res34'], help='image model architecture')
+parser.add_argument('--image_model', type=str, default='res34', choices=['vgg16', 'res34', 'inceptionresnetv2'], help='image model architecture')
 parser.add_argument('--optim', type=str, default='sgd',
         help="training optimizer", choices=["sgd", "adam"])
 parser.add_argument('--random_crop', action='store_true', help='Use random cropping as data augmentation')
@@ -58,6 +60,31 @@ transform = transforms.Compose(
    transforms.ToTensor(),
    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
 )
+if args.image_model == 'vgg16':
+  image_model = VGG16(n_class=args.n_class, pretrained=True)
+  if args.random_crop:
+    transform_train = transforms.Compose(
+      [transforms.RandomSizedCrop(224),
+       transforms.ToTensor(),
+       transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
+      )        
+  else:
+    transform_train = transform
+elif args.image_model == 'res34':
+  image_model = Resnet34(n_class=args.n_class, pretrained=True) 
+  if args.random_crop:
+    transform_train = transforms.Compose(
+      [transforms.RandomSizedCrop(224),
+       transforms.ToTensor(),
+       transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
+      )        
+  else:
+    transform_train = transform
+elif args.image_model == 'inceptionresnetv2':
+  image_model = InceptionResnetv2(n_class=args.n_class)
+  transform_train = transform = utils.TransformImage(pretrainedmodels.__dict__[args.image_model](num_classes=1000, pretrained='imagenet'))
+
+
 print(args.exp_dir)
 tasks = [3]
 
@@ -134,15 +161,6 @@ if 0 in tasks:
         class2idx = json.load(f) 
    
     args.n_class = len(class2idx.keys())
-    if args.random_crop:
-      transform_train = transforms.Compose(
-        [transforms.RandomSizedCrop(224),
-         transforms.ToTensor(),
-         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
-        )        
-    else:
-      transform_train = transform
-
     trainset = MSCOCORegionDataset(data_path + 'train2014/imgs/train2014/', train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path + 'val2014/imgs/val2014/', test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_2k':
@@ -152,15 +170,6 @@ if 0 in tasks:
     with open(args.class2id_file, 'r') as f:
       class2idx = json.load(f)
     args.n_class = len(class2idx.keys())
-    if args.random_crop:
-      transform_train = transforms.Compose(
-        [transforms.RandomSizedCrop(224),
-         transforms.ToTensor(),
-         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
-        )        
-    else:
-      transform_train = transform
-    
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)   
   elif args.dataset == 'mscoco_imbalanced':
@@ -198,27 +207,13 @@ if 0 in tasks:
     else:
       with open(args.class2id_file, 'r') as f:
         class2idx = json.load(f) 
-    args.n_class = len(class2idx.keys())
-    if args.random_crop:
-      transform_train = transforms.Compose(
-        [transforms.RandomSizedCrop(224),
-         transforms.ToTensor(),
-         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
-        )        
-    else:
-      transform_train = transform 
-    
+    args.n_class = len(class2idx.keys())    
     trainset = MSCOCORegionDataset(data_path, train_label_file, class2idx_file=args.class2id_file, transform=transform_train) 
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform)
        
   train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0)
   test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0)
   
-  if args.image_model == 'vgg16':
-    image_model = VGG16(n_class=args.n_class, pretrained=True)
-  elif args.image_model == 'res34':
-    image_model = Resnet34(n_class=args.n_class, pretrained=True) 
-
   train(image_model, train_loader, test_loader, args)
 
 #--------------------------#
@@ -266,11 +261,7 @@ if 1 in tasks:
 
   test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
   
-  if args.image_model == 'res34':
-    image_model = Resnet34(args.n_class, pretrained=True)
-  else:
-    image_model = VGG16(n_class=args.n_class, pretrained=True)
-    image_model.load_state_dict(torch.load(pretrain_model_file))
+  # image_model.load_state_dict(torch.load(pretrain_model_file))
   args.save_features = True 
   validate(image_model, test_loader, args)
 
@@ -281,14 +272,12 @@ if 2 in tasks:
   if args.image_model == 'res34':
     if args.pretrain_model_file is None:
       args.pretrain_model_file = 'exp/jan_31_res34_mscoco_train_sgd_lr_0.001/image_model.10.pth'
-    image_model = Resnet34(n_class=args.n_class, pretrained=True)
     image_model.load_state_dict(torch.load(args.pretrain_model_file))
     
     weight_dict = {'weight': image_model.fc.weight.cpu().detach().numpy(),
                    'bias': image_model.fc.bias.cpu().detach().numpy()}
     np.savez('%s/classifier_weights.npz' % args.exp_dir, **weight_dict)
   if args.image_model == 'vgg16':
-    image_model = VGG16(n_class=args.n_class, pretrained=True)
     if args.pretrain_model_file is None:
       args.pretrain_model_file = 'exp/vgg16_mscoco_train_sgd_lr_0.001/image_model.1.pth' 
     image_model.load_state_dict(torch.load(args.pretrain_model_file))
