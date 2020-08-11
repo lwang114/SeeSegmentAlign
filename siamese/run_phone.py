@@ -7,7 +7,7 @@ import time
 import torch
 import dataloaders
 import models
-from steps.traintest_phone import train, validate
+from steps.traintest_phone import train, validate, align
 import numpy as np
 import json
 import random
@@ -43,8 +43,8 @@ parser.add_argument("--n_epochs", type=int, default=100,
         help="number of maximum training epochs")
 parser.add_argument("--n_print_steps", type=int, default=10,
         help="number of steps to print statistics")
-parser.add_argument("--audio-model", type=str, default="Davenet", choices=['Davenet', 'RNN']
-        help="audio model architecture", choices=["Davenet"])
+parser.add_argument("--audio-model", type=str, default="Davenet", choices=['Davenet', 'RNN'],
+        help="audio model architecture")
 parser.add_argument("--image-model", type=str, default="VGG16",
         help="image model architecture", choices=["VGG16"])
 parser.add_argument("--pretrained-image-model", action="store_true",
@@ -53,7 +53,7 @@ parser.add_argument("--margin", type=float, default=1.0, help="Margin paramater 
 parser.add_argument("--simtype", type=str, default="MISA",
         help="matchmap similarity function", choices=["SISA", "MISA", "SIMA"])
 parser.add_argument('--image_concept_file', type=str, default=None, help='Text file of image concepts in each image-caption pair')
-
+parser.add_argument('--nfolds', type=int, default=1, help='Number of folds for cross validation')
 args = parser.parse_args()
 resume = args.resume
 tasks = [2]
@@ -65,10 +65,10 @@ if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
 elif args.dataset == 'mscoco_train':
   data_dir = data_dir + 'train2014/'
   
-args.image_concept_file = data_dir + '%s_image_concepts.txt' % args.dataset 
+args.image_concept_file = data_dir + '%s_image_captions.txt' % args.dataset 
 phone_feat_file = data_dir + '%s_phone_captions' % args.dataset
 image_feat_file = data_dir + '%s_res34_embed512dim' % args.dataset
-phone2idx_file = data_dir + '%s_phone2idx.json' % args.dataset
+phone2idx_file = data_dir + '%s_phone2idx.json' % args.dataset 
 
 if args.resume:
     assert(bool(args.exp_dir))
@@ -78,40 +78,44 @@ args.resume = resume
 print(args)
 
 if 0 in tasks:
-  with open(args.datasplit, 'r') as f_split:
-    lines = f_split.read().strip().split('\n')
-  test_indices = [i for i, line in enumerate(lines) if int(line)]
-  random.shuffle(test_indices)
-  # XXX
-  test_indices = test_indices[:1000] # Sub-sample 1000 image-caption pairs for the retrieval task
-  with open(args.datasplit.split('/')[-1].split('.')[0] + '_retrieval.txt', 'w') as f:
-    for i in range(len(lines)):
-      if i in test_indices:
-        f.write('1\n')
-      else:
-        f.write('0\n')
+  if self.nfolds > 1: # TODO
 
-  image_feat_npz = np.load(image_feat_file + '.npz')
-  # XXX
-  image_keys = sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))
-  image_feat_tr = {k: image_feat_npz[k] for k in image_keys if not int(k.split('_')[-1]) in test_indices}
-  image_feat_tx = {k: image_feat_npz[k] for k in image_keys if int(k.split('_')[-1]) in test_indices}
-  np.savez(image_feat_file + '_train.npz', **image_feat_tr)
-  np.savez(image_feat_file + '_test.npz', **image_feat_tx)
+  else:
+    with open(args.datasplit, 'r') as f_split:
+      lines = f_split.read().strip().split('\n')
+    test_indices = [i for i, line in enumerate(lines) if int(line)]
+    random.shuffle(test_indices)
+    # XXX
+    if len(test_indices) > 1000:
+      test_indices = test_indices[:1000] # Sub-sample 1000 image-caption pairs for the retrieval task
+    with open(args.datasplit.split('/')[-1].split('.')[0] + '_retrieval.txt', 'w') as f:
+      for i in range(len(lines)):
+        if i in test_indices:
+          f.write('1\n')
+        else:
+          f.write('0\n')
 
-  with open(phone_feat_file + '.txt', 'r') as f_phn,\
-       open(phone_feat_file + '_train.txt', 'w') as f_phn_tr,\
-       open(phone_feat_file + '_test.txt', 'w') as f_phn_tx:
-    i = 0
-    for line in f_phn:
-      # XXX
-      # if i > 499:
-      #   break
-      if not i in test_indices:
-        f_phn_tr.write(line)
-      else:
-        f_phn_tx.write(line) 
-      i += 1
+    image_feat_npz = np.load(image_feat_file + '.npz')
+    # XXX
+    image_keys = sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))
+    image_feat_tr = {k: image_feat_npz[k] for k in image_keys if not int(k.split('_')[-1]) in test_indices}
+    image_feat_tx = {k: image_feat_npz[k] for k in image_keys if int(k.split('_')[-1]) in test_indices}
+    np.savez(image_feat_file + '_train.npz', **image_feat_tr)
+    np.savez(image_feat_file + '_test.npz', **image_feat_tx)
+
+    with open(phone_feat_file + '.txt', 'r') as f_phn,\
+         open(phone_feat_file + '_train.txt', 'w') as f_phn_tr,\
+         open(phone_feat_file + '_test.txt', 'w') as f_phn_tx:
+      i = 0
+      for line in f_phn:
+        # XXX
+        # if i > 499:
+        #   break
+        if not i in test_indices:
+          f_phn_tr.write(line)
+        else:
+          f_phn_tx.write(line) 
+        i += 1
 
 if 1 in tasks:
   train_loader = torch.utils.data.DataLoader(
@@ -153,9 +157,8 @@ if 2 in tasks: # TODO
   val_loader = torch.utils.data.DataLoader(
       dataloaders.ImagePhoneCaptionDataset(image_feat_file + '.npz', phone_feat_file + '.txt', phone2idx_file, feat_conf={'datasplit':args.datasplit}),
       batch_size=args.batch_size, shuffle=False, num_workers=8, pin_memory=True)
-  audio_model = models.DavenetSmall(input_dim=len(phone2idx), ) 
+
+  audio_model = models.DavenetSmall(input_dim=len(phone2idx), embedding_dim=512) 
   image_model = models.NoOpEncoder(embedding_dim=512)
-  audio_model.load_state_dict(torch.load('{}/models/best_audio_model.%d.pth'.format(args.exp_dir)))
-  image_model.load_state_dict(torch.load('{}/models/best_image_model.%d.pth'.format(args.exp_dir)))
-  validate(audio_model, image_model, val_loader, args)
+  align(audio_model, image_model, val_loader, args)
  

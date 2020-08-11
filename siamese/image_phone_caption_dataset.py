@@ -29,21 +29,22 @@ class ImagePhoneCaptionDataset(Dataset):
     n_types = len(self.phone2idx)
 
     image_feat_npz = np.load(image_feat_file)
-    self.image_feats = [image_feat_npz[k].T for k in sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))]  
-    if self.split_file
+    self.image_feats = [image_feat_npz[k].T for k in sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))] # XXX 
+    if self.split_file:
       with open(self.split_file, 'r') as f:
-        self.selected_indices = [i for i, line in enumerate(f) if int(line)]
+        self.selected_indices = [i for i, line in enumerate(f) if int(line)] # XXX
     else:
       self.selected_indices = list(range(len(self.image_feats)))
 
     # Load the phone captions
     with open(phone_feat_file, 'r') as f:
       i = 0
-      # XXX
       for line in f:
         a_sent = line.strip().split()
         if len(a_sent) == 0:
           print('Empty caption', i)
+        # if i > 29: # XXX
+        #   break
         i += 1
 
         a_feat = np.zeros((n_types, self.max_nphones))
@@ -54,7 +55,6 @@ class ImagePhoneCaptionDataset(Dataset):
             a_feat[self.phone2idx[phn.lower()], t] = 1.
         self.phone_feats.append(a_feat)
         self.nphones.append(min(len(a_sent), self.max_nphones))
-    
     print(len(self.phone_feats), len(self.image_feats))
     assert len(self.phone_feats) == len(self.image_feats) 
     print('---- Dataset Summary ----')
@@ -66,12 +66,14 @@ class ImagePhoneCaptionDataset(Dataset):
 
   def __getitem__(self, idx):
     if torch.is_tensor(idx):
-      idx = [self.selected_indices[i] for i in idx.tolist()]
-
-    image_feat = self.image_feats[idx]
+      new_idx = [self.selected_indices[i] for i in idx.tolist()]
+    else:
+      new_idx = self.selected_indices[idx]
+      
+    image_feat = self.image_feats[new_idx]
     nregions = min(len(image_feat), self.max_nregions)
     image_feat = self.convert_to_fixed_length(image_feat)
-    return torch.FloatTensor(self.phone_feats[idx]), torch.FloatTensor(image_feat), self.nphones[idx], nregions
+    return torch.FloatTensor(self.phone_feats[new_idx]), torch.FloatTensor(image_feat), self.nphones[new_idx], nregions
   
   def convert_to_fixed_length(self, image_feat):
     N = image_feat.shape[-1]

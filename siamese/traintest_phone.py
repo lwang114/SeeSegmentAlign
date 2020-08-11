@@ -208,13 +208,16 @@ def validate(audio_model, image_model, val_loader, args):
 
     return recalls
 
-def align(audio_model, visual_model, val_loader, args):
+def align(audio_model, image_model, val_loader, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_time = AverageMeter()
     if not isinstance(audio_model, torch.nn.DataParallel):
         audio_model = nn.DataParallel(audio_model)
     if not isinstance(image_model, torch.nn.DataParallel):
         image_model = nn.DataParallel(image_model)
+    audio_model.load_state_dict(torch.load('{}/models/best_audio_model.pth'.format(args.exp_dir)))
+    image_model.load_state_dict(torch.load('{}/models/best_image_model.pth'.format(args.exp_dir)))
+
     audio_model = audio_model.to(device)
     image_model = image_model.to(device)
     # switch to evaluate mode
@@ -252,19 +255,20 @@ def align(audio_model, visual_model, val_loader, args):
             audio_output = audio_output.to('cpu').detach()
 
             pooling_ratio = round(audio_input.size(-1) / audio_output.size(-1))
-            n = image_outputs.size(0) 
+            n = image_output.size(0)
+            
             for i_b in range(n):
               M = computeMatchmap(image_output[i_b], audio_output[i_b])
-              alignment_out = np.argmax(M.squeeze().numpy(), axis=0)
+              alignment_out = np.argmax(M.squeeze().numpy(), axis=0).tolist()
               alignment_resampled = [i_a for i_a in alignment_out for _ in range(pooling_ratio)]
-              alignment = alignment_resampled[:int(nphones[i_b])]
               cur_idx = selected_indices[i*n+i_b]
+              alignment = alignment_resampled[:int(nphones[i_b])]
               align_info = {
                 'index': cur_idx,
                 'image_concepts': image_concepts[cur_idx],
                 'alignment': alignment
                 }
-              align_info.append(align_info)
-
-    with open(args.exp_dir+'alignment.json', 'w') as f:
-      json.dump(align_info, f, indent=4, sort_keys=True)
+              alignments.append(align_info)
+            print('Process {} batches after {}s'.format(i, time.time()-end))
+    with open('{}/alignment.json'.format(args.exp_dir), 'w') as f:
+      json.dump(alignments, f, indent=4, sort_keys=True)
