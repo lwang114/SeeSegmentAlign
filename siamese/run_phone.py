@@ -56,7 +56,7 @@ parser.add_argument('--image_concept_file', type=str, default=None, help='Text f
 parser.add_argument('--nfolds', type=int, default=1, help='Number of folds for cross validation')
 args = parser.parse_args()
 resume = args.resume
-tasks = [2]
+tasks = [1, 2]
 
 data_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
 
@@ -78,9 +78,7 @@ args.resume = resume
 print(args)
 
 if 0 in tasks:
-  if self.nfolds > 1: # TODO
-
-  else:
+  if True: # self.nfolds > 1: # TODO
     with open(args.datasplit, 'r') as f_split:
       lines = f_split.read().strip().split('\n')
     test_indices = [i for i, line in enumerate(lines) if int(line)]
@@ -141,10 +139,10 @@ if 1 in tasks:
       args.exp_dir = "exp/%s_AudioModel-%s_ImageModel-%s_Optim-%s_LR-%s_Epochs-%s" % (
           args.dataset, args.audio_model, args.image_model, args.optim,
           args.lr, args.n_epochs)
-
-  if not args.resume:
       print("\nexp_dir: %s" % args.exp_dir)
       os.makedirs("%s/models" % args.exp_dir)
+
+  if not args.resume:
       with open("%s/args.pkl" % args.exp_dir, "wb") as f:
           pickle.dump(args, f)
 
