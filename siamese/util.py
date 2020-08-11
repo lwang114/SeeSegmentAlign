@@ -124,6 +124,21 @@ def sampled_margin_rank_loss(image_outputs, audio_outputs, nframes, margin=1., s
     loss = loss / n
     return loss
 
+def mask_margin_softmax_loss(image_outputs, audio_outputs, nframes, margin=0.001, simtype='MISA', nregions=None):
+    """
+    image_outputs: B x D x H x W tensor
+    audio_outputs: B x D x T  tensor
+    Computes the masked margin softmax loss for each anchor image/caption pair as in:
+    G. Ilharco, Y. Zhang, J. Baldridge. ``Large-scale representation learning from visually grounded untranscribed speech``. CoNLL, 2019.
+    """
+    # loss = torch.zeros(1, device=image_outputs.device, requires_grad=True)
+    S = compute_matchmap_similarity_matrix(image_outputs, audio_outputs, nframes, simtype=simtype, nregions=nregions)
+    m = nn.LogSoftmax() 
+    n = image_outputs.size(0)
+    loss = torch.sum(m(S).diag())
+    loss = loss / n
+    return loss
+
 def compute_matchmap_similarity_matrix(image_outputs, audio_outputs, nframes, simtype='MISA', nregions=None):
     """
     Assumes image_outputs is a (batchsize, embedding_dim, rows, height) tensor
