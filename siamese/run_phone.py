@@ -52,6 +52,7 @@ parser.add_argument("--pretrained-image-model", action="store_true",
 parser.add_argument("--margin", type=float, default=1.0, help="Margin paramater for triplet loss")
 parser.add_argument("--simtype", type=str, default="MISA",
         help="matchmap similarity function", choices=["SISA", "MISA", "SIMA"])
+parser.add_argument('--losstype', choices=['triplet', 'mml'], default='triplet')
 parser.add_argument('--image_concept_file', type=str, default=None, help='Text file of image concepts in each image-caption pair')
 parser.add_argument('--nfolds', type=int, default=1, help='Number of folds for cross validation')
 args = parser.parse_args()
@@ -64,7 +65,13 @@ if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
   data_dir = data_dir + 'mscoco2k/feats/' 
 elif args.dataset == 'mscoco_train':
   data_dir = data_dir + 'train2014/'
-  
+
+if args.losstype == 'triplet':
+  args.optim = 'sgd'
+elif args.losstype == 'mml':
+  args.optim = 'adam'
+  args.margin = 0.001
+   
 args.image_concept_file = data_dir + '%s_image_captions.txt' % args.dataset 
 phone_feat_file = data_dir + '%s_phone_captions' % args.dataset
 image_feat_file = data_dir + '%s_res34_embed512dim' % args.dataset
