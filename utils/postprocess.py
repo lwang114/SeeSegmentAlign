@@ -172,12 +172,15 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
   if split_file:  
     with open(split_file, 'r') as f:
       test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
-  
+
+  i_ex = 0
   word_units = {}
-  for ex, (align_info, a_sent) in enumerate(zip(alignments, a_corpus)):
+  for ex, a_sent in enumerate(a_corpus):
     if not ex in test_indices:
       continue
-    
+
+    align_info = alignments[i_ex]
+    i_ex += 1
     if lms:
       pair_id = lm_keys[ex] 
     else:

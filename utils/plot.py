@@ -489,33 +489,45 @@ def plot_crp_counts(exp_dir, phone_corpus, gold_file, draw_plot=False, out_file=
   word2idx = {w:i for i, w in enumerate(gold_vocabs)}
   step_size = int(n_epochs / n_steps) 
   selected_epochs = np.arange(n_epochs)[::step_size].tolist()
-  table_counts = {'Iterations': ['Iteration {}'.format(epoch) for epoch in selected_epochs],\
-                  'Vocabularies': [gold_vocabs for _ in selected_epochs],\ 
-                  'Counts': [[0 for _ in gold_vocabs] for _ in selected_epochs]}
-  # Accumulate the table count
-  for datafile in os.listdir(exp_dir):
-    print(datafile)
-    if datafile.split('_')[-1] == 'tables.txt':
-      epoch = int(datafile.split('_')[-2][4:])
-      if epoch % step_size == 0:
-        i_s = int(epoch/step_size)
-        with open(datafile, 'r') as f:
-          for line in f:
-            parts = line.split()
-            w = ' '.join(parts[:-1])
-            i_w = word2idx[w]
-            if w in gold_vocabs:
-              table_counts['Counts'][i_s][i_w] += float(parts[-1]) 
+  table_counts = {'Iterations': ['Iteration {}'.format(epoch) for epoch in selected_epochs],
+                  'Vocabularies': [gold_vocabs for _ in selected_epochs],
+                  'Counts': [[0. for _ in gold_vocabs] for _ in selected_epochs]}
 
-  with open('crp_counts.json', 'w') as f:
-    json.dump(table_counts, f, indent=4, sort_keys=True)
+  for data_dir in os.listdir(exp_dir):
+    if data_dir.split('_')[-1] == 'counts' and data_dir.split('_')[-2] == 'crp':
+      # Accumulate the table count
+      for datafile in os.listdir(exp_dir+data_dir):
+        # print(datafile)
+        if datafile.split('_')[-1] == 'tables.txt':
+          epoch = int(datafile.split('_')[-2][4:])
+          if epoch % step_size == 0:
+            i_s = np.argmin(np.abs(epoch - np.arange(n_steps)*step_size))
+            with open('{}{}/{}'.format(exp_dir, data_dir, datafile), 'r') as f:
+              for line in f:
+                parts = line.split()
+                w = ' '.join(parts[:-1])
+                if w in gold_vocabs:
+                  i_w = word2idx[w]
+                  # print('table_counts.shape: {}, i_s: {}, i_w: {}'.format(str(np.asarray(table_counts['Counts']).shape), i_s, i_w))
+                  table_counts['Counts'][i_s][i_w] += float(parts[-1]) 
 
-  # Plot the histogram
-  table_counts_dfs = pd.DataFrame(table_counts)
-  ax = sns.barplot(x='Vocabularies', y='Counts', hue='Iterations', data=table_counts_dfs)
-  plt.savefig('crp_counts')
-  plt.show()
-  plt.close()
+      with open('{}{}/{}'.format(exp_dir, data_dir, 'crp_counts.json'), 'w') as f:
+        json.dump(table_counts, f, indent=4, sort_keys=True)
+
+      # Plot the histogram
+      new_table_counts = {'Iterations': [], 'Vocabularies': [], 'Counts': []}
+      for iteration, vocabs, counts in zip(table_counts['Iterations'], table_counts['Vocabularies'], table_counts['Counts']):
+        new_table_counts['Iterations'] += [iteration]*len(vocabs)
+        new_table_counts['Vocabularies'] += vocabs
+        new_table_counts['Counts'] += counts
+        
+      table_counts_dfs = pd.DataFrame(new_table_counts)
+      # table_counts_dfs = table_counts_dfs.explode(('Vocabularies', 'Counts'))
+      print('table_counts_dfs: {}'.format(str(table_counts_dfs)))
+      ax = sns.barplot(x='Vocabularies', y='Counts', hue='Iterations', data=table_counts_dfs)
+      plt.savefig('{}{}/{}'.format(exp_dir, data_dir, 'crp_counts'))
+      plt.show()
+      plt.close()
 
 def plot_likelihood_curve(exp_dir):
   likelihood_data = {'Number of Iterations':[],\
@@ -528,16 +540,29 @@ def plot_likelihood_curve(exp_dir):
     likelihoods = np.load(exp_dir + datafile)
     likelihoods = likelihoods[:20] # XXX
     model_name = datafile.split('.')[0].split('_')[0]
-    print(model_name)
-    if model_name == 'phone' or model_name == 'image':
-      likelihood_data['Model Name'] += ['HMM'] * len(likelihoods)
-    elif model_name == 'cascade':
-      likelihood_data['Model Name'] += ['Cascade HMM-CRP'] * len(likelihoods)
-    elif model_name == 'end-to-end':
-      likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods) 
+
+    if len(datafile.split('.')[0].split('_')) == 2:
+      print(model_name)
+      if model_name == 'phone' or model_name == 'image':
+        likelihood_data['Model Name'] += ['HMM'] * len(likelihoods)
+      elif model_name == 'cascade':
+        likelihood_data['Model Name'] += ['Cascade HMM-CRP'] * len(likelihoods)
+      elif model_name == 'end-to-end':
+        likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods) 
+      else:
+        likelihood_data['Model Name'] += [model_name] * len(likelihoods)
     else:
-      likelihood_data['Model Name'] += [model_name] * len(likelihoods)
-     
+      if datafile.split('.')[0].split('_')[1][:5] == 'alpha':
+        digits = datafile.split('.')[0].split('_')[1][5:]
+        nd = 0
+        for d in digits:
+          if int(d) == 0:
+            nd += 1
+          else:
+            break
+        model_name = '\\alpha={}'.format(float(digits) / 10**(nd))
+        likelihood_data['Model Name'] += [model_name] * len(likelihoods)
+        
     likelihood_data['Number of Iterations'] += list(range(len(likelihoods)))
     likelihood_data['Average Log Likelihood'] += likelihoods.tolist()
 
@@ -545,7 +570,7 @@ def plot_likelihood_curve(exp_dir):
   likelihood_df = pd.DataFrame(likelihood_data)
   ax = sns.lineplot(x='Number of Iterations', y='Average Log Likelihood', hue='Model Name', data=likelihood_df)
   plt.show()
-  plt.savefig('avg_log_likelihood')
+  plt.savefig(exp_dir+'avg_log_likelihood')
   plt.close() 
 
 def plot_posterior_gap_curve(exp_dir):
@@ -573,11 +598,11 @@ def plot_posterior_gap_curve(exp_dir):
   gap_df = pd.DataFrame(gap_data)
   ax = sns.lineplot(x='Number of Iterations', y='Average gap |p(z|x, y) - p(z|y)|', hue='Model Name', data=gap_df)
   plt.show()
-  plt.savefig('avg_posterior_gap')
+  plt.savefig(exp_dir+'avg_posterior_gap')
   plt.close()
 
 if __name__ == '__main__': 
-  tasks = [5]
+  tasks = [4]
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
   parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
@@ -591,7 +616,9 @@ if __name__ == '__main__':
     gold_json = '../data/flickr30k/audio_level/flickr30k_gold_alignment.json'
     concept2idx_file = '../data/flickr30k/concept2idx.json'
   elif args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
-    gold_json = '../data/%s_gold_alignment.json' % args.dataset
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
+    gold_json = datapath + '%s_gold_alignment.json' % args.dataset
+    phone_corpus = datapath + 'mscoco2k_phone_captions.txt'
     with open('../data/concept2idx_integer.json', 'w') as f:
       json.dump({i:i for i in range(65)}, f, indent=4, sort_keys=True)
     concept2idx_file = '../data/concept2idx_integer.json'
@@ -731,10 +758,9 @@ if __name__ == '__main__':
   #-----------------------------------#
   if 4 in tasks:
     plot_likelihood_curve(args.exp_dir)
-    plot_posterior_gap_curve(args.exp_dir)
+    # plot_posterior_gap_curve(args.exp_dir)
   #-------------------------------------------------#
   # Histogram of CRP Counts vs Number of Iterations #
   #-------------------------------------------------#
   if 5 in tasks:
-    # TODO
-    plot_crp_counts(args.exp_dir, gold_json, draw_plot=False, out_file=None)
+    plot_crp_counts(args.exp_dir, phone_corpus, gold_json, draw_plot=False, out_file=None)
