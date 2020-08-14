@@ -28,6 +28,7 @@ class ImagePhoneCaptionDataset(Dataset):
     self.nphones = []
     n_types = len(self.phone2idx)
 
+    print(phone_feat_file, image_feat_file)
     image_feat_npz = np.load(image_feat_file)
     self.image_feats = [image_feat_npz[k].T for k in sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))] # XXX 
     if self.split_file:

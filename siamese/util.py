@@ -2,6 +2,7 @@ import math
 import pickle
 import numpy as np
 import torch
+import torch.nn as nn
 
 def calc_recalls(image_outputs, audio_outputs, nframes, simtype='MISA', nregions=None):
     """
@@ -135,7 +136,7 @@ def mask_margin_softmax_loss(image_outputs, audio_outputs, nframes, margin=0.001
     S = compute_matchmap_similarity_matrix(image_outputs, audio_outputs, nframes, simtype=simtype, nregions=nregions)
     m = nn.LogSoftmax() 
     n = image_outputs.size(0)
-    loss = torch.sum(m(S).diag())
+    loss = -torch.sum(m(S).diag())-torch.sum(m(S.T).diag())
     loss = loss / n
     return loss
 

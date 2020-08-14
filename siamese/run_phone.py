@@ -19,7 +19,7 @@ print("I am process %s, running on %s: starting (%s)" % (
         os.getpid(), os.uname()[1], time.asctime()))
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("--dataset", choices={'mscoco2k', 'mscoco20k'}, default='',
+parser.add_argument("--dataset", choices={'mscoco2k', 'mscoco20k', 'mscoco_train'}, default='',
         help="Dataset")
 parser.add_argument("--datasplit", type=str, default='mscoco20k_split_0.txt',
         help="Train-test split")
@@ -64,7 +64,7 @@ data_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
 if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
   data_dir = data_dir + 'mscoco2k/feats/' 
 elif args.dataset == 'mscoco_train':
-  data_dir = data_dir + 'train2014/'
+  data_dir = data_dir
 
 if args.losstype == 'triplet':
   args.optim = 'sgd'
@@ -74,9 +74,16 @@ elif args.losstype == 'mml':
    
 args.image_concept_file = data_dir + '%s_image_captions.txt' % args.dataset 
 phone_feat_file = data_dir + '%s_phone_captions' % args.dataset
+phone_feat_file_train = data_dir + 'train2014/%s_phone_captions.txt' % args.dataset
+phone_feat_file_test = data_dir + 'val2014/mscoco_val_phone_captions_1k.txt'
 image_feat_file = data_dir + '%s_res34_embed512dim' % args.dataset
-phone2idx_file = data_dir + '%s_phone2idx.json' % args.dataset 
-
+image_feat_file_train = data_dir + 'train2014/%s_res34_embed512dim.npz' % args.dataset
+image_feat_file_test = data_dir + 'val2014/mscoco_val_res34_embed512dim_1k.npz'
+if args.dataset == 'mscoco_train':
+  phone2idx_file = data_dir + 'mscoco_phone2id.json' 
+else:
+  phone2idx_file = data_dir + '%s_phone2idx' % args.dataset
+  
 if args.resume:
     assert(bool(args.exp_dir))
     with open("%s/args.pkl" % args.exp_dir, "rb") as f:
@@ -123,14 +130,22 @@ if 0 in tasks:
         i += 1
 
 if 1 in tasks:
-  train_loader = torch.utils.data.DataLoader(
+  if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
+    train_loader = torch.utils.data.DataLoader(
       dataloaders.ImagePhoneCaptionDataset(image_feat_file + '_train.npz', phone_feat_file + '_train.txt', phone2idx_file, feat_conf={}),
       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-  val_loader = torch.utils.data.DataLoader(
+    val_loader = torch.utils.data.DataLoader(
       dataloaders.ImagePhoneCaptionDataset(image_feat_file + '_test.npz', phone_feat_file + '_test.txt', phone2idx_file, feat_conf={}),
       batch_size=args.batch_size, shuffle=False, num_workers=8, pin_memory=True)
-
+  else:
+    train_loader = torch.utils.data.DataLoader(
+      dataloaders.ImagePhoneCaptionDataset(image_feat_file_train, phone_feat_file_train, phone2idx_file, feat_conf={}),
+      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = torch.utils.data.DataLoader(
+      dataloaders.ImagePhoneCaptionDataset(image_feat_file_test, phone_feat_file_test, phone2idx_file, feat_conf={}),
+      batch_size=args.batch_size, shuffle=False, num_workers=8, pin_memory=True)
+    
   with open(phone2idx_file, 'r') as f:
     phone2idx = json.load(f)
 

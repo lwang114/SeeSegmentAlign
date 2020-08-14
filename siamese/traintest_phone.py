@@ -101,9 +101,12 @@ def train(audio_model, image_model, train_loader, test_loader, args):
             nphones.div_(pooling_ratio)
 
             # TODO
-            loss = sampled_margin_rank_loss(image_output, audio_output,
+            if args.losstype == 'triplet':
+                loss = sampled_margin_rank_loss(image_output, audio_output,
                 nphones, nregions=nregions, margin=args.margin, simtype=args.simtype)
-
+            elif args.losstype == 'mml':
+                loss = mask_margin_softmax_loss(image_output, audio_output,
+                                                nphones, nregions=nregions, margin=args.margin, simtype=args.simtype)
             loss.backward()
             optimizer.step()
 
