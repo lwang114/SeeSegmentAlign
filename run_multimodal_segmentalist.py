@@ -117,8 +117,11 @@ print(args)
 if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
 
+with open(args.exp_dir+'args.txt', 'w') as f:
+  f.write(str(args))
+
 if args.dataset == 'mscoco2k':
-  datasetpath = 'data/'
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
   if args.audio_feat_type == 'synthetic':
     args.audio_feat_type = 'audio_gaussian_vectors'
   audio_feature_file = datasetpath + 'mscoco2k_%s_unsegmented.npz' % args.audio_feat_type 
@@ -137,7 +140,7 @@ if args.dataset == 'mscoco2k':
   gold_alignment_file = datasetpath + 'mscoco2k_gold_alignment.json'
   classifier_weights_npz = '' # TODO
 elif args.dataset == 'mscoco20k':
-  datasetpath = 'data/'
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
   audio_feature_file = datasetpath + 'mscoco20k_mfcc.npz' 
   image_feature_file = datasetpath + 'mscoco20k_%s.npz' % args.image_feat_type 
   concept2idx_file = datasetpath + 'concept2idx.json'
@@ -149,7 +152,7 @@ elif args.dataset == 'mscoco20k':
   gold_alignment_file = datasetpath + 'mscoco20k_gold_alignment.json'
   classifier_weights_npz = '' # TODO
 elif args.dataset == 'mscoco_imbalanced':
-  args.vm_class = 'vtgmm'
+  args.vm_class = 'vgmm'
   datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
   audio_feature_file = datasetpath + 'mscoco_imbalanced_mfcc_unsegmented.npz'
   image_feature_file = datasetpath + 'mscoco_imbalanced_res34_embed512dim.npz'

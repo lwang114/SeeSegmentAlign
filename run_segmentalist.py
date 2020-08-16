@@ -91,7 +91,7 @@ parser.add_argument("--exp_dir", type=str, default='./', help="Experimental dire
 parser.add_argument("--feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'synthetic'}, help="Acoustic feature type")
 parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC/delta feature")
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
-parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k'})
+parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k', 'mscoco_imbalanced'})
 parser.add_argument('--use_null', action='store_true')
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
 parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
@@ -102,7 +102,7 @@ if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
 
 if args.dataset == 'mscoco2k':
-  datasetpath = 'data/'  
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
 
   if args.feat_type == 'synthetic':
     args.feat_type = 'audio_gaussian_vectors'
@@ -115,7 +115,7 @@ if args.dataset == 'mscoco2k':
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco2k_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco2k_gold_alignment.json'
 elif args.dataset == 'mscoco20k':
-  datasetpath = 'data/'
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
   datapath = datasetpath + 'mscoco20k_mfcc.npz'
   # datapath = '../data/mscoco/mscoco20k_kamper_embeddings.npz'
   image_concept_file = datasetpath + 'mscoco20k_image_captions.txt'
@@ -126,6 +126,12 @@ elif args.dataset == 'mscoco20k':
   gold_segmentation_file = datasetpath + "mscoco20k_gold_word_segmentation.npy"
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco20k_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco20k_gold_alignment.json'
+elif args.dataset == 'mscoco_imbalanced':
+  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+  datapath = datasetpath + 'mscoco_imbalanced_mfcc_unsegmented.npz'
+  concept2idx_file = datasetpath + 'concept2idx.json'
+  pred_alignment_file = os.path.join(args.exp_dir, 'mscoco_imbalanced_pred_alignment.json')
+  gold_alignment_file = datasetpath + 'mscoco_imbalanced_gold_alignment.json'
 
 downsample_rate = 1
 if args.feat_type == 'ctc':
@@ -158,7 +164,7 @@ if start_step == 0:
     # if i_ex > 29:
     #   break
     feat_mat = audio_feats[feat_id] 
-    if (args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k') and datapath.split('.')[0].split('_')[-1] != 'unsegmented':
+    if args.dataset[:6] == 'mscoco' and datapath.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
 
     if feat_mat.shape[0] > 2000:
@@ -166,13 +172,15 @@ if start_step == 0:
     else:
       feat_mat = feat_mat[:, :args.mfcc_dim]
     
-    feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
+    # XXX feat_mat = (feat_mat - np.mean(feat_mat)) / np.std(feat_mat)
 
     if not args.landmarks_file:
       n_slices = feat_mat.shape[0]
       landmarks_dict[feat_id] = np.arange(n_slices)
       landmark_ids.append(feat_id)
-    else:   
+    else: 
+      if i_ex > len(landmark_ids) - 1:
+        continue 
       n_slices = len(landmarks_dict[landmark_ids[i_ex]]) - 1   
     feat_dim = args.mfcc_dim 
     assert args.embed_dim % feat_dim == 0   
@@ -236,12 +244,12 @@ if start_step <= 1:
   if args.am_class == "fbgmm":
     D = args.embed_dim
     am_class = fbgmm.FBGMM
-    am_alpha = 10.
+    am_alpha = 1.
     am_K = args.am_K
     m_0 = np.zeros(D)
     k_0 = 0.05
-    # S_0 = 0.2*np.ones(D)
     S_0 = 0.002*np.ones(D)
+    # S_0 = 0.002*np.ones(D)
     am_param_prior = gaussian_components_fixedvar.FixedVarPrior(S_0, m_0, S_0/k_0)
     segmenter = UnigramAcousticWordseg(
       am_class, am_alpha, am_K, am_param_prior, embedding_mats, vec_ids_dict, 
