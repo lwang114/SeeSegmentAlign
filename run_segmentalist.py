@@ -88,13 +88,14 @@ parser.add_argument("--technique", choices={"resample", "interpolate", "rasanen"
 parser.add_argument("--am_class", choices={"fbgmm"}, default='fbgmm', help="Class of acoustic model")
 parser.add_argument("--am_K", type=int, default=65, help="Number of clusters")
 parser.add_argument("--exp_dir", type=str, default='./', help="Experimental directory")
-parser.add_argument("--feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'synthetic'}, help="Acoustic feature type")
+parser.add_argument("--feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'transformer_enc_3', 'synthetic'}, help="Acoustic feature type")
 parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC/delta feature")
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
 parser.add_argument('--dataset', choices={'flickr', 'mscoco2k', 'mscoco20k', 'mscoco_imbalanced'})
 parser.add_argument('--use_null', action='store_true')
 parser.add_argument('--seed_assignments_file', type=str, default=None, help='File with initial assignments')
 parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File with seed boundaries')
+parser.add_argument('--start_step', type=int, default=0, help='Step to start the experiment')
 args = parser.parse_args()
 print(args)
 
@@ -132,15 +133,26 @@ elif args.dataset == 'mscoco_imbalanced':
   concept2idx_file = datasetpath + 'concept2idx.json'
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco_imbalanced_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco_imbalanced_gold_alignment.json'
+  pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
+  pred_segmentation_file = os.path.join(args.exp_dir, "mscoco_imbalanced_pred_segmentation.npy")
+  pred_landmark_segmentation_file = os.path.join(args.exp_dir, "mscoco_imbalanced_pred_landmark_segmentation.npy")
 
 downsample_rate = 1
 if args.feat_type == 'ctc':
   args.mfcc_dim = 200 # XXX Hack to get embed() working
-elif args.feat_type == 'transformer':
+elif args.feat_type.split('_')[0] == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
+  parts = args.feat_type.split('_')
+  if len(parts) >= 3:
+    layer_idx = int(parts[2])
+    datapath = '%s%s_transformer_encs_unsegmented.npz' % (datasetpath, args.dataset)
+    a_npz = np.load(datapath)
+    a_feats = {k:a_npz[k][layer_idx] for k in sorted(a_npz, key=lambda x:int(x.split('_')[-1]))} # XXX
+    datapath = '%s%s_transformer_enc_%d.npz' % (datasetpath, args.dataset, layer_idx)
+    np.savez(datapath, **a_feats)
 
-start_step = 0 
+start_step = args.start_step 
 if start_step == 0:
   print("Start extracting acoustic embeddings")
   begin_time = time.time()
@@ -161,8 +173,8 @@ if start_step == 0:
 
   for i_ex, feat_id in enumerate(sorted(audio_feats.keys(), key=lambda x:int(x.split('_')[-1]))):
     # XXX
-    # if i_ex > 29:
-    #   break
+    if i_ex > 29:
+      break
     feat_mat = audio_feats[feat_id] 
     if args.dataset[:6] == 'mscoco' and datapath.split('.')[0].split('_')[-1] != 'unsegmented':
       feat_mat = np.concatenate(feat_mat, axis=0)
@@ -303,13 +315,17 @@ if start_step <= 3:
   vec_ids_dict = np.load(args.exp_dir+"vec_ids_dict.npz") 
   centroids = np.load(args.exp_dir + '%s_means.npy' % args.am_class)
   alignments = []
-  for i_feat, feat_id in enumerate(sorted(audio_feats, key=lambda x:int(x.split('_')[-1]))):
+  i_feat = -1
+  for feat_id in sorted(audio_feats, key=lambda x:int(x.split('_')[-1])):
     # XXX 
     # if i_feat > 10:
     #   break
     print(feat_id)
     feat_id = feat_id.split('_')[0] + '_' + str(int(feat_id.split('_')[-1]))
     alignment = []
+    if not feat_id in embeds_dict:
+      continue 
+    i_feat += 1
     embed_mat = embeds_dict[feat_id]
     vec_ids = vec_ids_dict[feat_id]
     lm_segments = np.asarray([s for s in np.nonzero(lm_boundaries[i_feat])[0].tolist()]) 

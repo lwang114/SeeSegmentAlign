@@ -92,8 +92,11 @@ def alignment_to_word_units(alignment_file, phone_corpus,
 
   # XXX
   for ex, (align_info, a_sent, v_sent) in enumerate(zip(alignments, a_corpus, v_corpus)):
+    if ex > 199:
+      break
     if not ex in test_indices:
       continue
+
     if len(concept2id) > 0:
       image_concepts = [concept2id[c] for c in v_sent]
       # print(image_concepts)
@@ -136,7 +139,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
           continue
 
         if not lms:
-          word_units.append('%s %d %d %s\n' % (pair_id, start, t + 1, image_concepts[prev_align_idx]))
+          word_units.append('%s %d %d %s\n' % (pair_id, start, t+1, image_concepts[prev_align_idx]))
         else:
           lm_id = 'arr_'+str(ex)
           word_units.append('%s %d %d %s\n' % (pair_id, lm[start], lm[t+1], image_concepts[prev_align_idx]))
@@ -172,15 +175,19 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
   if split_file:  
     with open(split_file, 'r') as f:
       test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
-
-  i_ex = 0
+  
   word_units = {}
+  i_ex = 0
   for ex, a_sent in enumerate(a_corpus):
+    # XXX
+    if ex > 199:
+      break
+
     if not ex in test_indices:
       continue
-
     align_info = alignments[i_ex]
     i_ex += 1
+
     if lms:
       pair_id = lm_keys[ex] 
     else:
@@ -194,15 +201,12 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
     if 'concept_alignment' in align_info:
       n_concepts = max(alignment) + 1
       concept_alignment = align_info['concept_alignment']
-      
-      print(concept_alignment)
       image_concepts = [-1]*n_concepts 
       i_prev = -1
       for c, i in zip(concept_alignment, alignment):
         if i != i_prev:
           image_concepts[i] = c
           i_prev = i
-      print(image_concepts)
     elif hierarchical:
       image_concepts = [c for cc in align_info['image_concepts'] for c in cc.split(',')]
     else:
@@ -216,8 +220,8 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
     prev_align_idx = -1
     start = 0
     if len(alignment) != len(a_sent) and not lms:
-      print('alignment file: ', alignment_file)
-      print('Warning: length of the alignment not equal to the length of sentence: %d != %d' % (len(alignment), len(a_sent)))
+      print('alignment: {}\na_sent: {}'.format(alignment, a_sent))
+      print('Warning: length of the alignment %d not equal to the length of sentence: %d != %d' % (ex, len(alignment), len(a_sent)))
       gap = len(a_sent) - len(alignment)
       if gap > 0:
         print('Extend the alignment by %d ...' % gap)
@@ -234,7 +238,6 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
           prev_align_idx = align_idx
           start = t
           continue
-
         if hierarchical:
           cur_concept = ','.join(image_concepts[start:t])
         else:
@@ -242,14 +245,20 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
           #   logger.info('image_concepts: %s' % str(image_concepts))
           #   logger.info('ex, pair_id, prev_align_idx, len(image_concepts): %d %s %d %d' % (ex, pair_id, prev_align_idx, len(image_concepts)))
           cur_concept = image_concepts[prev_align_idx] 
-
+        
         if cur_concept not in word_units:
           if lms:
+            if t > len(lm) - 1: # XXX
+              print('Warning: sequence length exceeds landmark length')
+              continue
             word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t])] 
           else:
             word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t)]
         else: 
           if lms:
+            if t > len(lm) - 1:
+              print('Warning: sequence length exceeds landmark length')
+              continue
             word_units[cur_concept].append('%s %d %d\n' % (pair_id, lm[start], lm[t]))
           else:
             word_units[cur_concept].append('%s %d %d\n' % (pair_id, start, t))
@@ -268,13 +277,21 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
 
         if cur_concept not in word_units:
           if lms:
+            if t + 1 > len(lm) - 1:
+              print('Warning: sequence length exceeds landmark length')
+              continue
+
             if DEBUG:
               logger.info('pair_id, start, t, lm[start], lm[t+1], len(image_concepts): %s %d %d %d %d %d' % (pair_id, start, t, lm[start], lm[t+1], len(image_concepts)))
             word_units[cur_concept] = ['%s %d %d\n' % (pair_id, lm[start], lm[t+1])]
           else:
             word_units[cur_concept] = ['%s %d %d\n' % (pair_id, start, t + 1)]
         else: 
-          if lms:
+          if lms: 
+            if t + 1 > len(lm) - 1:
+              print('Warning: sequence length exceeds landmark length')
+              continue
+
             if DEBUG:
               logger.info('pair_id, start, t, lm[start], lm[t+1], len(image_concepts): %s %d %d %d %d %d' % (pair_id, start, t, lm[start], lm[t+1], len(image_concepts)))
             word_units[cur_concept].append('%s %d %d\n' % (pair_id, lm[start], lm[t+1]))
@@ -309,10 +326,10 @@ def segmentation_to_word_classes(segmentation_file,
       with open(phone_corpus_file, 'r') as f:
         phone_corpus = f.read().strip().split('\n') 
 
-    for ex, segmentation in enumerate(segmentations):
+    for ex, segmentation in enumerate(segmentations): 
       if not ex in test_indices:
         continue
-      
+                   
       pair_id = 'arr_' + str(ex)  
       print(pair_id)
       start = 0
@@ -356,6 +373,8 @@ def segmentation_to_word_classes(segmentation_file,
         test_indices = list(range(len(segmentations)))
       
       for ex, (sent, segmentation) in enumerate(zip(phones, segmentations)):
+        if ex > 199: # XXX
+          continue 
         pair_id = 'arr_' + str(ex)
         for seg, start, end in zip(sent, segmentation[:-1], segmentation[1:]):
           if not seg in word_units:
@@ -364,6 +383,8 @@ def segmentation_to_word_classes(segmentation_file,
             word_units[seg].append('%s %d %d\n' % (pair_id, start, end)) 
     if 'image_concepts' in data_info[0]:
       for ex, datum_info in enumerate(data_info):
+        if ex > 199: # XXX
+          continue
         pair_id = 'arr_' + str(ex)
         labels = datum_info['image_concepts']
         segmentation = datum_info['segmentation']
@@ -379,6 +400,42 @@ def segmentation_to_word_classes(segmentation_file,
       f.write('Class %d:\n' % i_c)
       f.write(''.join(word_units[c]))
       f.write('\n')
+
+def segmentation_to_phone_classes(segmentation_file,
+                                 phone_class_file='phones.class',
+                                 phone_corpus_file = None,
+                                 split_file = None,
+                                 include_null = False):
+  phone_units = {}
+  if split_file:  
+    with open(split_file, 'r') as f:
+      test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
+
+  with open(segmentation_file, 'r') as f:
+    data_info = json.load(f)
+  
+  if 'image_concepts' in data_info[0]:
+    for ex, datum_info in enumerate(data_info):
+      if ex > 199: # XXX
+        continue
+      pair_id = 'arr_' + str(ex)
+      word_labels = datum_info['image_concepts']
+      segmentation = datum_info['segmentation']
+      for word_label, start, end in zip(word_labels, segmentation[:-1], segmentation[1:]):
+        for i_phn, phone_label in enumerate(word_label.split(',')):
+          if not phone_label in phone_units:
+            phone_units[phone_label] = ['%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1)]
+          else:
+            phone_units[phone_label].append('%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1)) 
+
+  with open(phone_class_file, 'w') as f:
+    for i_c, c in enumerate(phone_units):
+      #print(i_c, c)
+      f.write('Class %d:\n' % i_c)
+      f.write(''.join(phone_units[c]))
+      f.write('\n')
+
+
 
 def _findPhraseFromPhoneme(sent, alignment):
   if not hasattr(sent, '__len__') or not hasattr(alignment, '__len__'):
@@ -647,6 +704,24 @@ def extract_top_concept_segments(audio_cluster_file, feat2wav_file, wav_dir, ids
     os.mkdir(c_dir)
     _, _ = extract_concept_segments(clusters[c], feat2wav, wav_dir, ids_to_utterance_labels, out_dir=c_dir)
 
+def multiple_captions_to_single_caption(multiple_phone_caption_file, image_caption_file, out_file_prefix='single'):
+  with open(multiple_phone_caption_file, 'r') as f_p,\
+       open(image_caption_file, 'r') as f_i:
+      multiple_phone_captions = f_p.read().strip().split('\n')
+      image_captions = f_i.read().strip().split('\n')
+  
+  single_phone_captions = []
+  single_image_captions = []
+  for cur_mult_capts, cur_image_capt in zip(multiple_phone_captions, image_captions):
+    cur_single_capts = cur_mult_capts.split(',')
+    single_phone_captions += cur_single_capts
+    single_image_captions += [cur_image_capt] * len(cur_single_capts) 
+  
+  with open(out_file_prefix + '_phone_captions.txt', 'w') as f_p,\
+       open(out_file_prefix + '_image_captions.txt', 'w') as f_i:
+      f_p.write('\n'.join(single_phone_captions))
+      f_i.write('\n'.join(single_image_captions))
+
 if __name__ == '__main__':
   logger = logging.basicConfig(filename='postprocess.log', format='%(asctime)s %(message)s', level=logging.DEBUG) 
   parser = argparse.ArgumentParser()
@@ -655,7 +730,7 @@ if __name__ == '__main__':
   args = parser.parse_args()
   tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
   
-  tasks = [0]
+  tasks = [2]
   if 0 in tasks:
     model_name = 'crp'
     exp_dir = args.exp_dir
@@ -675,6 +750,13 @@ if __name__ == '__main__':
       print(segmentation_file)
       segmentation_to_word_classes(segmentation_file, word_class_file='%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name))
   if 2 in tasks:
-    wbd_segmentation_file = '../data/mscoco2k_predicted_word_boundary_for_val.json'
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
+    wbd_segmentation_file = datapath + 'mscoco2k_predicted_word_boundary_for_val_new.json'
     out_file = 'mscoco2k_wbd_landmarks.npz'
     convert_WBD_segmentation_to_10ms_landmark(wbd_segmentation_file, out_file=out_file)
+  if 3 in tasks: # TODO
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/'
+    multiple_captions_file = datapath + 'mscoco_train_phone_multiple_captions.txt'
+    image_caption_file = datapath + 'mscoco_train_image_captions.txt'
+    out_file_prefix = datapath + 'mscoco_train_single'
+    multiple_captions_to_single_caption(multiple_captions_file, image_caption_file, out_file_prefix)

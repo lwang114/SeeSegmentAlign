@@ -95,7 +95,7 @@ parser.add_argument("--vm_K", type=int, default=65, help="Number of visual clust
 parser.add_argument('--aligner_class', choices={'mixture_aligner', 'crp_aligner'}, default='mixture_aligner', help='Class of alignment model')
 parser.add_argument('--segmenter_class', choices={'standard', 'mixture'}, default='standard', help='Class of segmentation model')
 parser.add_argument("--exp_dir", type=str, default='./', help="Experimental directory")
-parser.add_argument("--audio_feat_type", type=str, choices={"mfcc", "mbn", 'kamper', 'ctc', 'transformer', 'synthetic'}, default='mfcc', help="Acoustic feature type")
+parser.add_argument("--audio_feat_type", type=str, choices={"mfcc", 'fbank_kaldi', "mbn", 'kamper', 'ctc', 'transformer', 'transformer_enc_3', 'synthetic', 'transformer_embed'}.union({'transformer_enc_%d' % (i+1) for i in range(11)}), default='mfcc', help="Acoustic feature type")
 parser.add_argument("--image_feat_type", type=str, choices={'res34', 'synthetic'}, default='res34', help="Visual feature type")
 parser.add_argument("--mfcc_dim", type=int, default=14, help="Number of the MFCC/delta feature")
 parser.add_argument("--landmarks_file", default=None, type=str, help="Npz file with landmark locations")
@@ -159,14 +159,21 @@ elif args.dataset == 'mscoco_imbalanced':
   concept2idx_file = datasetpath + 'concept2idx.json'
   pred_alignment_file = os.path.join(args.exp_dir, 'mscoco_imbalanced_pred_alignment.json')
   gold_alignment_file = datasetpath + 'mscoco_imbalanced_gold_alignment.json'
-  classifier_weights_npz = '' # TODO
 
 downsample_rate = 1
 if args.audio_feat_type == 'ctc':
   args.mfcc_dim = 200 
-elif args.audio_feat_type == 'transformer':
+elif args.audio_feat_type.split('_')[0] == 'transformer':
   args.mfcc_dim = 256
   downsample_rate = 4
+  parts = args.audio_feat_type.split('_')
+  if len(parts) >= 3:
+    layer_idx = int(parts[2])
+    audio_feature_file = '%s%s_transformer_encs_unsegmented.npz' % (datasetpath, args.dataset)
+    a_npz = np.load(audio_feature_file)
+    a_feats = {k:a_npz[k][layer_idx] for k in sorted(a_npz, key=lambda x:int(x.split('_')[-1]))} # XXX
+    audio_feature_file = '%s%s_transformer_enc_%d.npz' % (datasetpath, args.dataset, layer_idx)
+    np.savez(audio_feature_file, **a_feats)
 
 start_step = args.start_step
 if start_step == 0:

@@ -505,7 +505,7 @@ def preemphasis(signal, coeff=0.97):
   return np.append(signal[0], signal[1:] - coeff * signal[:-1])
 
 def embed(y, embed_dim, frame_dim=None, technique="resample"): 
-  #assert embed_dim % self.audio_feat_dim == 0
+  # assert embed_dim % self.audio_feat_dim == 0  
   if frame_dim: 
     y = y[:, :frame_dim].T
   else:
@@ -537,7 +537,7 @@ def embed(y, embed_dim, frame_dim=None, technique="resample"):
  
 if __name__ == "__main__": 
   logging.basicConfig(filename='audio_feat_ext.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
-  tasks = [1] 
+  tasks = [3] 
   if 0 in tasks:
     data_dir = "../data/flickr30k/audio_level/"
     audio_info_file = data_dir + "flickr30k_gold_alignment.json"
@@ -556,7 +556,7 @@ if __name__ == "__main__":
     audio_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_phone_power_law_info.json' 
     audio_dir = '/home/lwang114/data/mscoco/audio/val2014/'
     feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
-    feat_extractor.create_gold_phone_landmarks(feat_configs={}, output_file='mscoco_imbalanced_gold_phone_landmarks')
+    # feat_extractor.create_gold_phone_landmarks(feat_configs={}, output_file='mscoco_imbalanced_gold_phone_landmarks')
     # feat_extractor.create_gold_word_landmarks(feat_configs={}, output_file='mscoco2k_gold_word_landmarks')
     # feat_extractor.create_gold_word_segmentation(feat_configs={'level':'frame'}, output_file='mscoco20k_gold_word_segmentation')
 
@@ -564,11 +564,15 @@ if __name__ == "__main__":
     # feat_extractor.create_gold_word_segmentation(data_info_file, level='frame', output_file='mscoco20k_gold_word_segmentation')
     # feat_extractor.create_gold_phone_landmarks(data_info_file, output_file='mscoco20k_gold_phone_landmarks')
   if 2 in tasks:
-    feat_extractor.extract_kamper_embeddings('../data/TIMIT/TIMIT_subset_mfcc.npz', embed_dim=140, file_prefix='TIMIT_subset_kamper_embeddings', subword=False)
-  if 3 in tasks:
-    segment = False
-    out_dir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_imbalanced_'
-    audio_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json' 
+    segment = True
+    out_dir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_'
+    audio_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_phone_power_law_info.json' 
     audio_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014/' # '/ws/ifp-04_3/hasegawa/lwang114/data/mscoco/audio/val2014/'
     feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
-    feat_extractor.extractMFCC(feat_configs={'is_subword': False, 'is_segmented': segment}, out_dir=out_dir) 
+    feat_extractor.extractMFCC(feat_configs={'is_subword': True, 'is_segmented': segment}, out_dir=out_dir)
+  if 3 in tasks:
+    datapath = '/ws/ifp-53_1/hasegawa/tools/espnet/egs/discophone/ifp_lwang114/dump/mscoco/eval/deltafalse/split1utt/' # '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+    audio_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014/wav/val2014/'
+    audio_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/mscoco2k_phone_info.json'
+    feat_extractor = MSCOCOAudioFeaturePreprocessor(audio_info_file, audio_dir)
+    feat_extractor.extract_kamper_embeddings(datapath+'data_input_features.npz', frame_dim=83, embed_dim=830, file_prefix='mscoco2k_kamper_kaldi_embeddings.npz', subword=False) 

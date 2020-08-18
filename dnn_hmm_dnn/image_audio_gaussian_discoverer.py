@@ -72,7 +72,7 @@ class ImageAudioGaussianHMMDiscoverer:
       durKeys = sorted(durNpz, key=lambda x:int(x.split('_')[-1]))
       self.aCorpus = [aNpz[k][:durNpz[durKeys[int(k.split('_')[-1])]][-1]] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX Truncate the features up to the duration of the utterance
     else:
-      self.aCorpus = [aNpz[k] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX
+      self.aCorpus = [aNpz[k] if len(aNpz[k].shape) == 2 else aNpz[k].squeeze(0) for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX
 
     nTokens = 0
     self.audioFeatDim = self.aCorpus[0].shape[-1]
@@ -705,7 +705,14 @@ class ImageAudioGaussianHMMDiscoverer:
         f.write('\n')
 
 if __name__ == '__main__':
-  tasks = [3]
+  import argparse
+  import os
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--feat_type', '-f', choices=['kamper', 'kamper_kaldi', 'transformer_embed', 'transformer_enc_last']+['transformer_enc_{}'.format(i+1) for i in range(11)])
+  parser.add_argument('--dataset', '-d', choices=['mscoco2k', 'mscoco_imbalanced'], help='Type of dataset')
+  parser.add_argument('--task', '-t', type=int, help='Task index')
+  args = parser.parse_args()
+  tasks = [args.task]
   #----------------------------#
   # Word discovery on tiny.txt #
   #----------------------------#
@@ -821,15 +828,29 @@ if __name__ == '__main__':
   # Word discovery on MSCOCO #
   #---------------------------#
   if 3 in tasks:      
-    speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_kamper_embeddings.npz'
-    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_res34_embed512dim.npz'
+    datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+    if args.feat_type.split('_')[0] == 'kamper':
+      speechFeatureFile = '%s%s_%s_embeddings.npz' % (datapath, args.dataset, args.feat_type)
+    elif args.feat_type.split('_')[1] == 'enc':
+      speechFeatureFile = '%s%s_transformer_encs.npz' % (datapath, args.dataset)
+      layerIdx = int(args.feat_type.split('_')[2])
+      aNpz = np.load(speechFeatureFile)
+      aFeats = {featId:aNpz[featId][:, layerIdx] for featId in sorted(aNpz, key=lambda x:int(x.split('_')[-1]))} # XXX
+      speechFeatureFile = '%s%s_transformer_enc_%d.npz' % (datapath, args.dataset, layerIdx)
+      np.savez(speechFeatureFile, **aFeats)
+    else:
+      speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/%s_%s.npz' % (args.dataset, args.feat_type)
+    imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/%s_res34_embed512dim.npz' % args.dataset
     # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/embedding_mats.npz'
     # imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/segmentalist/july27_hmbesgmm_mscoco2k_wbd_mfcc/v_embedding_mats.npz'
     durationFile = None 
     dsRate = 1
 
-    modelConfigs = {'dataset': 'mscoco_imbalanced', 'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
-    modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_nomerge/image_audio_balanced' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    modelConfigs = {'dataset': args.dataset, 'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': args.feat_type, 'width': 10., 'downsample_rate': dsRate} # XXX
+    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug4_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_nomerge/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    if not os.path.isdir(expDir):
+      os.mkdir(expDir)
+    modelName = expDir + 'image_audio_balanced' 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
