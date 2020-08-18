@@ -464,7 +464,7 @@ class MSCOCO_Preprocessor():
       json.dump(phone_counts, f, indent=4, sort_keys=True)
   
   def extract_phone_info(self, json_file, text_file_prefix, 
-                  allow_repeated_concepts=False):
+                  allow_repeated_concepts=False, expand_person_class=True):
     pair_info = None
     phone_info_all = {}
     phone_sents = []
@@ -483,9 +483,22 @@ class MSCOCO_Preprocessor():
             phone_sent.append(phone_info[0])
         print(phone_info)
       phone_info_all[k] = phone_sent
-      phone_sents.append(' '.join(phone_sent))
-      concepts_all.append(' '.join(concepts))
-
+      phone_sent_str = ' '.join(phone_sent)
+      phone_sents.append(phone_sent_str)
+      if expand_person_class and 'person' in concepts:
+        concepts_expanded = [c for c in concepts if c != 'person'] 
+        if 'm a n' in phone_sent_str:
+          concepts_expanded.append('man')
+        if 'w u m @ n' in phone_sent_str or 'w i m i n' in phone_sent_str:
+          concepts_expanded.append('woman')
+        if 'b oi' in phone_sent_str:
+          concepts_expanded.append('boy')
+        if 'g @@ l' in phone_sent_str:
+          concepts_expanded.append('girl')
+        concepts_all.append(' '.join(concepts_expanded))
+      else:
+        concepts_all.append(' '.join(concepts))
+ 
     with open(text_file_prefix+'_phones.json', 'w') as f:
       json.dump(phone_info_all, f, indent=4, sort_keys=True)   
     with open(text_file_prefix+'.txt', 'w') as f:
