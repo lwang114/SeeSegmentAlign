@@ -70,7 +70,7 @@ class ImageAudioGaussianHMMDiscoverer:
     if self.durationFile:
       durNpz = np.load(self.durationFile)          
       durKeys = sorted(durNpz, key=lambda x:int(x.split('_')[-1]))
-      self.aCorpus = [aNpz[k][:durNpz[durKeys[int(k.split('_')[-1])]][-1]] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX Truncate the features up to the duration of the utterance
+      self.aCorpus = [aNpz[k][:durNpz[durKeys[int(k.split('_')[-1])]][-1]] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # Truncate the features up to the duration of the utterance
     else:
       self.aCorpus = [aNpz[k] for k in sorted(aNpz.keys(), key=lambda x:int(x.split('_')[-1]))] # XXX
 
@@ -144,18 +144,13 @@ class ImageAudioGaussianHMMDiscoverer:
       if self.visualAnchorFile.split('.')[-1] == 'json':
         self.musV = np.zeros((self.nWords, self.imageFeatDim))
         with open(self.visualAnchorFile, 'r') as f:
-          anchorDict = json.load(f)
-        partition = anchorDict['partition']
-        partialLabels = np.asarray(anchorDict['labels'])
-        indicesLarge = np.nonzero(1-partialLabels)[0]
-        indicesSmall = np.nonzero(partialLabels)[0] 
-        nWordsLarge, nWordsSmall = len(partition[0]), len(partition[1])
-        logger.info('indicesLarge: ' + str(indicesLarge))
-        self.musV[:nWordsLarge] = KMeans(n_clusters=nWordsLarge).fit(np.concatenate(self.vCorpus, axis=0)[indicesLarge]).cluster_centers_
-        if self.hasNull:
-          self.musV[-nWordsSmall-1:-1] = KMeans(n_clusters=nWordsSmall).fit(np.concatenate(self.vCorpus, axis=0)[indicesSmall]).cluster_centers_
-        else:
-          self.musV[-nWordsSmall:] = KMeans(n_clusters=nWordsSmall).fit(np.concatenate(self.vCorpus, axis=0)[indicesSmall]).cluster_centers_
+          partialLabels = json.load(f)
+        partialLabels = np.asarray(partialLabels)
+        labelIndices = np.where(partialLabels > 0)[0]
+        unlabelIndices = np.where(partialLabels == 0)[0]
+        nLabelWords = max(partialLabels) + 1 
+        self.musV[:nLabelWords] = KMeans(n_clusters=nLabelWords).fit(np.concatenate(self.vCorpus, axis=0)[labelIndices]).cluster_centers_ 
+        self.musV[nLabelWords:] = KMeans(n_clusters=self.nWords-nLabelWords).fit(np.concatenate(self.vCorpus, axis=0)[unlabelIndices]).cluster_centers_
       else:
         self.musV = np.load(self.visualAnchorFile)
     else:
@@ -170,6 +165,7 @@ class ImageAudioGaussianHMMDiscoverer:
         aCorpusConcat = [np.concatenate(aSen, axis=0) for aSen in self.aCorpus]
         self.musA = KMeans(n_clusters=self.nPhones).fit(np.concatenate(aCorpusConcat, axis=0)).cluster_centers_
       else:
+        self.aCorpus = [aSen for aSen in self.aCorpus] 
         self.musA = KMeans(n_clusters=self.nPhones).fit(np.concatenate(self.aCorpus, axis=0)).cluster_centers_
     logger.info("Finish initialization after %0.3f s" % (time.time() - begin_time))
 
@@ -189,6 +185,7 @@ class ImageAudioGaussianHMMDiscoverer:
       self.captIds = []
       if self.multipleCaptions:
         self.captIds = [random.randint(0, len(aSen)-1) for aSen in self.aCorpus]
+        print(self.captIds)
         conceptPhoneCounts = [np.zeros((aSen[self.captIds[ex]].shape[0], self.nWords, self.nPhones)) for ex, aSen in enumerate(self.aCorpus)] 
       else:
         conceptPhoneCounts = [np.zeros((aSen.shape[0], self.nWords, self.nPhones)) for aSen in self.aCorpus]      
@@ -748,7 +745,7 @@ class ImageAudioGaussianHMMDiscoverer:
       else:
         for a in alignment:
           f.write('%d ' % a)
-        f.write('\n\n')
+        f.write('\n')
 
         prev_align_idx = -1
         start = 0
@@ -784,8 +781,15 @@ class ImageAudioGaussianHMMDiscoverer:
         f.write('\n')
 
 if __name__ == '__main__':
+  import argparse
   logging.basicConfig(filename='image_audio_imbalanced.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
-  tasks = [1, 4]
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--task', '-t', type=int, help='Task index')
+  parser.add_argument('--n_phones', '-n', type=int, default=49, help='Number of phone types')
+  args = parser.parse_args()
+  nPhones = args.n_phones
+  tasks = [args.task]
+
   #----------------------------#
   # Word discovery on tiny.txt #
   #----------------------------#
@@ -812,13 +816,13 @@ if __name__ == '__main__':
     if multipleCaptions:
       phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_multiple_captions.txt'
       speechFeatureFile = datapath + 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
-      imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+      imageConceptFile = datapath + 'train2014/mscoco_train_image_captions_expanded.txt'
       imageFeatureFile = datapath + 'train2014/mscoco_train_concept_gaussian_vectors.npz'
     else:
-      phoneCaptionFile = datapath + 'train2014/mscoco_train_single_phone_captions.txt'
-      speechFeatureFile = datapath + 'train2014/mscoco_train_phone_single_gaussian_vectors.npz'
-      imageConceptFile = datapath + 'train2014/mscoco_train_single_image_captions.txt'  
-      imageFeatureFile = datapath + 'train2014/mscoco_train_concept_single_gaussian_vectors.npz'
+      phoneCaptionFile = datapath + 'train2014/mscoco_train_phone_captions.txt'
+      speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
+      imageConceptFile = datapath + 'train2014/mscoco_train_image_captions_expanded.txt'  
+      imageFeatureFile = datapath + 'train2014/mscoco_train_concept_gaussian_vectors.npz'
     # phoneCaptionFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_captions.txt' # '../data/mscoco/src_mscoco_subset_subword_level_power_law.txt'
     # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_phone_gaussian_vectors.npz' # '../data/mscoco/mscoco_subset_subword_level_phone_gaussian_vectors.npz'
     # imageConceptFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_image_captions.txt'  
@@ -839,6 +843,7 @@ if __name__ == '__main__':
             nTypes += 1
     
     # Generate nTypes different clusters
+    '''
     imgFeatDim = 2
     centroids = 10 * np.random.normal(size=(nTypes, imgFeatDim)) 
     for ex, vSenStr in enumerate(vCorpusStr):
@@ -856,10 +861,11 @@ if __name__ == '__main__':
       vCorpus['arr_'+str(ex)] = vSen
     
     np.savez(imageFeatureFile, **vCorpus)
-    
+
     with open(conceptIdxFile, 'w') as f:
       json.dump(concept2idx, f, indent=4, sort_keys=True)
-    
+    '''
+
     aCorpus = {}
     phone2idx = {}
     nPhones = 0
@@ -889,8 +895,8 @@ if __name__ == '__main__':
     centroids = 10 * np.random.normal(size=(nPhones, spFeatDim)) 
     
     for ex, aSenStr in enumerate(aCorpusStr):
-      # if ex > 99: # XXX
-      #   break
+      if ex > 99: # XXX
+        break
 
       if multipleCaptions:
         aSen = []
@@ -948,7 +954,7 @@ if __name__ == '__main__':
     durationFile = None 
     dsRate = 1
 
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 65, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': nPhones, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'mfcc', 'width': 1., 'normalize': False, 'downsample_rate': dsRate} # XXX
     modelName = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug1_mscoco2k_wbd_%s_momentum%.2f_lr%.5f_gaussiansoftmax/image_audio' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
     print(modelName)
 
@@ -960,11 +966,13 @@ if __name__ == '__main__':
   #-------------------------------------#
   if 4 in tasks: 
     datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
-    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_single_gaussian_vectors.npz' # 'train2014/mscoco_train_phone_multiple_gaussian_vectors.npz'
-    imageFeatureFile = datapath + 'train2014/mscoco_train_concept_single_gaussian_vectors.npz' # 'train2014/mscoco_train_res34_embed512dim.npz'
-    imageConceptFile = datapath + 'train2014/mscoco_train_single_image_captions.txt'
+    segmented = True
+    speechFeatureFile = datapath + 'train2014/mscoco_train_phone_gaussian_vectors.npz'
+
+    imageFeatureFile = datapath + 'train2014/mscoco_train_res34_embed512dim.npz'
+    imageConceptFile = datapath + 'train2014/mscoco_train_image_captions.txt'
+    imageConceptFileExpanded = datapath + 'train2014/mscoco_train_image_captions_expanded.txt'
     partialLabelFile = 'mscoco_train_labels_partial.json'
-    concept2count_file = datapath + 'train2014/class2count.json'
     # speechFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_kamper_embeddings.npz'
     # imageFeatureFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_res34_embed512dim.npz'
     # imageConceptFile = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco_imbalanced_image_captions.txt'  
@@ -972,45 +980,43 @@ if __name__ == '__main__':
     # concept2count_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'
     durationFile = None
     dsRate = 1
-
-    modelConfigs = {'dataset': 'mscoco_train', 'has_null': False, 'n_words': 80, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.0, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 1., 'normalize': False, 'downsample_rate': dsRate, 'multiple_captions': False} # XXX
-    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug9_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'])
+    modelConfigs = {'dataset': 'mscoco_train', 'has_null': True, 'n_words': 84, 'n_phones': nPhones, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'synthetic', 'width': 10., 'normalize': False, 'downsample_rate': dsRate, 'multiple_captions': False} # XXX
+    expDir = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/dnn_hmm_dnn/exp/aug18_%s_%s_momentum%.2f_lr%.5f_gaussiansoftmax_mergelabel_segmented%d/' % (modelConfigs['dataset'], modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate'], segmented)
+    print(expDir)
     if not os.path.isdir(expDir):
       os.mkdir(expDir)
     modelConfigs['visual_anchor_file'] = expDir + partialLabelFile
     logger.info(expDir)
     
-    with open(concept2count_file, 'r') as f:
-      concept2count = json.load(f)
-     
-    topk = 1 # XXX
-    partialLabels = {'partition':[[], []], 'labels':[]}
-    sorted_concepts = sorted(concept2count, key=lambda x:concept2count[x], reverse=True)
-    partialLabels['partition'][0] = sorted_concepts[:topk]
-    partialLabels['partition'][1] = sorted_concepts[topk:]
-
-    with open(imageConceptFile, 'r') as f_c:
-      vCorpus = {}
-      concept2idx = {}
-      nTypes = 0
-    
-      vCorpusStr = []
+    partialLabels = []
+    label2idx = {'woman':1, 'man':2, 'girl':3, 'boy':4}
+    with open(imageConceptFile, 'r') as f_c,\
+         open(imageConceptFileExpanded, 'r') as f_e: 
       i = 0
-      for line in f_c:
+      for line_c, line_e in zip(f_c, f_e):
         # XXX
-        i += 1
+        # i += 1
         # if not (i > 0 and i <= 100):
         #   continue
-        vSen = line.strip().split()
-        vCorpusStr.append(vSen)
-        for vWord in vSen:
-          if vWord not in partialLabels['partition'][0]:
-            partialLabels['labels'].append(1) 
+        vSen = line_c.strip().split()
+        vSenExp = line_e.strip().split()
+        # Check if the caption contains only a single person. 
+        # If so, find the corresponding region of the person and the type of the person
+        if 'person' in vSen: 
+          if len(vSen) == len(vSenExp):
+            for vWord in vSen:
+              if vWord == 'person':
+                for vWordExp in vSenExp:
+                  if not vWordExp in vSen:  
+                    partialLabels.append(label2idx[vWordExp])
+                    break 
+              else:
+                partialLabels.append(0) 
           else:
-            partialLabels['labels'].append(0) 
+            partialLabels += [-1 for vWord in vSen]
+        else:
+          partialLabels += [0 for vWord in vSen] 
       
-      print('len(partialLabels[labels]): ' + str(len(partialLabels['labels'])))
-
     with open(expDir + partialLabelFile, 'w') as f_l:
       json.dump(partialLabels, f_l, sort_keys=True, indent=4)
 

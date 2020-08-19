@@ -55,12 +55,12 @@ class ImagePhoneGaussianHMMWordDiscoverer:
 
     vNpz = np.load(imageFeatFile)
     # XXX
-    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))[:30]] 
-    
+    self.vCorpus = [vNpz[k] for k in sorted(vNpz.keys(), key=lambda x:int(x.split('_')[-1]))] 
+
+    self.imageFeatDim = self.vCorpus[0].shape[-1]
     if self.hasNull:
       # Add a NULL concept vector
       self.vCorpus = [np.concatenate((np.zeros((1, self.imageFeatDim)), vfeat), axis=0) for vfeat in self.vCorpus]   
-    self.imageFeatDim = self.vCorpus[0].shape[-1]
     
     for ex, vfeat in enumerate(self.vCorpus):
       nImages += len(vfeat)
@@ -71,7 +71,12 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     
     f = open(speechFeatFile, 'r')
     aCorpusStr = []
+    i_ex = 0
     for line in f:
+      # XXX
+      # if i_ex > 299:
+      #   break
+      i_ex += 1
       aSen = line.strip().split()
       if len(aSen) == 0:
         print('Empty caption')
@@ -86,8 +91,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
     f.close()
     self.audioFeatDim = nTypes
 
-    # XXX
-    for aSenStr in aCorpusStr[:30]:
+    for aSenStr in aCorpusStr:
       T = len(aSenStr)
       aSen = np.zeros((T, self.audioFeatDim))
       for t, phn in enumerate(aSenStr):
@@ -144,12 +148,31 @@ class ImagePhoneGaussianHMMWordDiscoverer:
       self.obs = 1. / self.audioFeatDim * np.ones((self.nWords, self.audioFeatDim))
 
     # XXX    
+    vCorpusConcat = np.concatenate(self.vCorpus, axis=0)
     if self.visualAnchorFile:
-      self.mus = np.load(self.visualAnchorFile)
+      if self.visualAnchorFile.split('.')[-1] == 'json':
+        self.mus = np.zeros((self.nWords, self.imageFeatDim))
+        with open(self.visualAnchorFile, 'r') as f:
+          partialLabels = json.load(f)
+        partialLabels = np.asarray(partialLabels)
+        labelIndices = np.where(partialLabels > 0)[0]
+        unlabelIndices = np.where(partialLabels == 0)[0]
+        nLabelWords = max(partialLabels) + 1 
+        counts = np.zeros((nLabelWords,))
+        for i_l in labelIndices:
+          counts[partialLabels[i_l]-1] += 1
+          self.mus[partialLabels[i_l]-1] += vCorpusConcat[i_l]
+        self.mus[:nLabelWords] /= np.maximum(counts[:, np.newaxis], EPS)
+        self.mus[nLabelWords:] = KMeans(n_clusters=self.nWords-nLabelWords).fit(vCorpusConcat[unlabelIndices]).cluster_centers_
+      else:
+        self.mus = np.load(self.visualAnchorFile)
     else:
       #self.mus = 10. * np.eye(self.nWords)
-      self.mus = KMeans(n_clusters=self.nWords).fit(np.concatenate(self.vCorpus, axis=0)).cluster_centers_
+      self.mus = KMeans(n_clusters=self.nWords).fit(vCorpusConcat).cluster_centers_
       #self.mus = 1. * np.random.normal(size=(self.nWords, self.imageFeatDim))
+    
+    if multipleCaptions: # TODO Make this more general
+      self.vCorpus = [vSen for vSen in self.vCorpus for _ in range(5)] 
     print("Finish initialization after %0.3f s" % (time.time() - begin_time))
   
   # TODO
@@ -220,7 +243,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         likelihood = self.computeAvgLogLikelihood()
         likelihoods[epoch] = likelihood
         print('Epoch', epoch, 'Average Log Likelihood:', likelihood)
-        if writeModel and epoch % 10 == 0:
+        if writeModel and epoch % 1 == 0:
           self.printModel(self.modelName + '_' + str(epoch))
           self.printAlignment(self.modelName + '_alignment', isSegmented=self.isSegmented, debug=False)
       
@@ -491,7 +514,7 @@ class ImagePhoneGaussianHMMWordDiscoverer:
         if ex in self.testIndices:
           continue
         zProb = self.softmaxLayer(vSen, debug=debug)
-        print('zProb: ', np.argmax(zProb, axis=1))
+        # print('zProb: ', np.argmax(zProb, axis=1))
         Delta = conceptCount - zProb 
         posteriorGaps += 1. / (len(self.vCorpus) - len(self.testIndices)) * np.sum(np.abs(Delta))
         dmus += 1. / (len(self.vCorpus) * self.width) * (Delta.T @ vSen - (np.sum(Delta, axis=0) * self.mus.T).T) 
@@ -745,12 +768,58 @@ if __name__ == '__main__':
   #--------------------------#
   # Word discovery on MSCOCO #
   #--------------------------#
-  if 2 in tasks:      
-    speechFeatureFile = '../data/mscoco2k_phone_captions_segmented.txt'
-    imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    modelConfigs = {'has_null': False, 'n_words': 65, 'learning_rate': 0.1}
-    modelName = 'exp/may21_mscoco2k_gaussian_hmm_res34_lr%.5f/image_phone' % modelConfigs['learning_rate'] 
-    print(modelName)
+  if 2 in tasks:
+    import os
+    multipleCaptions = True
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/'
+    if multipleCaptions:
+      speechFeatureFile = datapath + 'mscoco_train_multiple_phone_captions_segmented.txt'
+    else:
+      speechFeatureFile = datapath + 'mscoco_train_phone_captions_segmented.txt'
+    imageFeatureFile = datapath + 'mscoco_train_concept_gaussian_vectors.npz' # 'mscoco_train_res34_embed512dim.npz'
+    imageConceptFile = datapath + 'mscoco_train_image_captions.txt'
+    imageConceptFileExpanded = datapath + 'mscoco_train_image_captions_expanded.txt'
+    partialLabelFile = 'mscoco_train_labels_partial.json'
+    modelConfigs = {'has_null': True, 'n_words': 84, 'learning_rate': 0.1, 'multiple_captions': multipleCaptions}
+    expDir = '/ws/ifp-53_2/hasegawa/lwang114/summer2020/exp/aug19_mscoco_train_gaussian_hmm_res34_lr%.5f/' % modelConfigs['learning_rate'] 
+    if not os.path.isdir(expDir):
+      os.mkdir(expDir)
+    modelName = expDir + 'image_phone' 
+    modelConfigs['visual_anchor_file'] = expDir + partialLabelFile
+    print(modelName)   
+    
+    partialLabels = []
+    label2idx = {'woman':1, 'man':2, 'girl':3, 'boy':4}
+    with open(imageConceptFile, 'r') as f_c,\
+         open(imageConceptFileExpanded, 'r') as f_e: 
+      i = 0
+      for line_c, line_e in zip(f_c, f_e):
+        # XXX
+        i += 1
+        # if not (i > 0 and i <= 60):
+        #   continue
+        vSen = line_c.strip().split()
+        vSenExp = line_e.strip().split()
+        # Check if the caption contains only a single person. 
+        # If so, find the corresponding region of the person and the type of the person
+        if 'person' in vSen: 
+          if len(vSen) == len(vSenExp):
+            for vWord in vSen:
+              if vWord == 'person':
+                for vWordExp in vSenExp:
+                  if not vWordExp in vSen:  
+                    partialLabels.append(label2idx[vWordExp])
+                    break 
+              else:
+                partialLabels.append(0) 
+          else:
+            partialLabels += [-1 for vWord in vSen]
+        else:
+          partialLabels += [0 for vWord in vSen] 
+      
+    with open(expDir + partialLabelFile, 'w') as f_l:
+      json.dump(partialLabels, f_l, sort_keys=True, indent=4)
+
     model = ImagePhoneGaussianHMMWordDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
-    model.trainUsingEM(10, writeModel=True, debug=False)
+    model.trainUsingEM(20, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', isSegmented=True, debug=False)  
