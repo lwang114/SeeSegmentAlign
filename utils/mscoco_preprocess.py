@@ -7,10 +7,10 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import numpy as np
 from scipy.io import loadmat, wavfile
-from pycocotools.coco import COCO
+# from pycocotools.coco import COCO
 from PIL import Image
 import random
-from speechcoco.speechcoco import SpeechCoco
+# from speechcoco.speechcoco import SpeechCoco
 import os
 
 random.seed(2)
@@ -743,6 +743,7 @@ class MSCOCO_Preprocessor():
       json_info = json.load(f)
 
     bboxes = []
+    concepts_all = []
     # XXX
     if dataset_type == 'synthetic':
       assert not (imgid2bbox_file is None)
@@ -781,13 +782,15 @@ class MSCOCO_Preprocessor():
               label_bboxes_in_class[c][2] = x + w - label_bboxes_in_class[c][0]
             if y + h > label_bboxes_in_class[c][1] + label_bboxes_in_class[c][3]:
               label_bboxes_in_class[c][3] = y + h - label_bboxes_in_class[c][1]
-          
+
         for c in label_bboxes_in_class: 
           x, y, w, h = label_bboxes_in_class[c]
           bboxes.append('%s %s %d %d %d %d\n' % (image_id, c, x, y, w, h))
 
     with open(out_file_prefix+'.txt', 'w') as f:
       f.write(''.join(bboxes))
+    with open(out_file_prefix+'_concept_captions.txt', 'w') as f:
+      f.write('\n'.join(concepts_all))
   
   def phone_caption_json_to_text(self, json_file, out_file_prefix, allow_repeated_concepts=False, max_vocab_size=2000):
     phone_sents = []
@@ -833,7 +836,6 @@ class MSCOCO_Preprocessor():
       
     with open(out_file_prefix+'.txt', 'w') as f:
       f.write('\n'.join(phone_sents))   
-  
   
   def extract_phone_caption_from_karpathy_split(self, speech_api_train_file, speech_api_val_file, karpathy_json, out_file_prefix, max_vocab_size=2000): # XXX
     phone_sents = []
@@ -906,6 +908,35 @@ class MSCOCO_Preprocessor():
     with open(out_file_prefix+'.txt', 'w') as f:
       f.write('\n'.join(phone_sents))   
  
+  def expand_person_class(self, concept_caption_file, phone_caption_file, expanded_concept_caption_file='mscoco_concept_captions_expanded.txt'): # TODO
+    with open(concept_caption_file, 'r') as f_c,\
+         open(phone_caption_file, 'r') as f_p,\
+         open(expanded_concept_caption_file, 'w') as f_e:
+      for concept_str, phones in zip(f_c, f_p): 
+        concepts = concept_str.split('\n')[0].split()
+        if 'person' in concepts:
+          concepts_expanded = [c for c in concepts if c != 'person']
+          replace = False                 
+          if 'm a n' in phones or 'm e n' in phones:
+            concepts_expanded.append('man')
+            replace = True
+          if 'w u m @ n' in phones or 'w i m i n' in phones:
+            concepts_expanded.append('woman')
+            replace = True
+          if 'b oi' in phones:
+            concepts_expanded.append('boy')
+            replace = True
+          if 'g @@ l' in phones:
+            concepts_expanded.append('girl')
+            replace = True
+          if not replace:
+            concepts_expanded.append('person')
+          f_e.write(' '.join(concepts_expanded))
+          f_e.write('\n')
+        else:
+          f_e.write(' '.join(concepts))
+          f_e.write('\n')
+
 def compute_stick_break_prior(vs):
   K = len(vs)
   pvs = np.cumprod(1-vs)
@@ -924,7 +955,11 @@ def is_nonspeech(phn):
   return 1
 
 if __name__ == '__main__':
-  tasks = [2]
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--task', '-t', type=int, help='Task index')
+  args = parser.parse_args()
+  tasks = [args.task]
   instance_file = 'annotations/instances_val2014.json'
   caption_file = 'annotations/captions_val2014.json' 
   speech_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
@@ -955,14 +990,14 @@ if __name__ == '__main__':
     preproc.extract_image_audio_subset_power_law(file_prefix=file_prefix, subset_size=subset_size)
     # preproc.extract_image_audio_phone_level_subset('../data/mscoco/%s_concept_info_power_law.json' % file_prefix, out_file_prefix='%s_phone_power_law' % file_prefix)
   if 2 in tasks:
-    max_num_per_class = 2000 
+    max_num_per_class = 20000 
     subset_size = int(max_num_per_class * 65 / 5)
     # XXX
     file_prefix = 'mscoco_subset_%dk' % (int((max_num_per_class * 65) / 1000)) 
-    json_file = '/ws/ifp-53_2/lwang114/data/mscoco/mscoco_synthetic_imbalanced/%s_phone_power_law_info_1.json' % file_prefix
+    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/%s_phone_power_law_info.json' % file_prefix
     print(json_file)
     preproc.extract_phone_info(json_file, '%s_subword_level_power_law' % file_prefix)
-    preproc.to_xmnt_text('%s_subword_level_power_law' % file_prefix, '%s_subword_level_power_law' % file_prefix)
+    preproc.to_xnmt_text('%s_subword_level_power_law.txt' % file_prefix, '%s_subword_level_power_law.txt' % file_prefix)
   if 3 in tasks: 
     data_info_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_phone_info.json'
     concept_info_file = '../data/mscoco/mscoco_subset_concept_counts_power_law.json'
@@ -973,17 +1008,22 @@ if __name__ == '__main__':
     data_info_file = '../data/mscoco/mscoco_subset_130k_phone_power_law_info.json'
     preproc.json_to_text_gclda(data_info_file, text_file_prefix='../data/mscoco/gclda_20k')
   if 5 in tasks:
-    json_file = '../data/train_mscoco_info_text_image.json'
+    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json'
     preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes')
+    # json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
+    # imgid2bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_imgid2bbox.json'
+    # preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', dataset_type='synthetic', imgid2bbox_file=imgid2bbox_file)
   if 6 in tasks:
-    json_file = '../data/train_mscoco_info_text_image.json'
-    preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption')
+    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json'
+    top_words_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_phone_caption_top_words.txt'
+    preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption', top_words_file=top_words_file)
   if 7 in tasks:
     speech_api_train_file = '/home/lwang114/data/mscoco/audio/train2014/train_2014.sqlite3'
     speech_api_val_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
     json_file = '../data/dataset_coco.json'
     preproc.extract_phone_caption_from_karpathy_split(speech_api_train_file, speech_api_val_file, json_file, out_file_prefix='mscoco_phone_caption')
   if 8 in tasks:
-    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
-    imgid2bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_imgid2bbox.json'
-    preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', dataset_type='synthetic', imgid2bbox_file=imgid2bbox_file)
+    concept_caption_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_single_image_captions.txt'
+    phone_caption_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_single_phone_captions.txt'
+    out_file = 'mscoco_train_image_captions_expanded.txt'
+    preproc.expand_person_class(concept_caption_file, phone_caption_file, out_file)
