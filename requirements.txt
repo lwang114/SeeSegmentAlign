@@ -1,0 +1,17 @@
+For dnn-hmm-dnn:
+
+    python >= 3.6
+    numpy >= 1.19.1
+    matplotlib >= 3.2.2
+    scipy >= 1.5.0
+    scikit-learn >= 0.23.1
+    nltk >= 3.5
+    librosa >= 0.8.0
+    pillow >= 7.2.0
+    pandas >= 1.1.0 
+
+For CTC feature extraction:
+    pytorch >= 0.4
+    warpctc_pytorch >= d1dd79fc435b80e8ab55826c03cdc70ff937a423
+    sphfile >= 1.0.3
+

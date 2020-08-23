@@ -23,7 +23,7 @@ parser.add_argument('--momentum', type=float, default=0.9)
 parser.add_argument('--weight_decay', type=float, default=0.1)
 parser.add_argument('--lr_decay', type=int, default=10, help='Divide the learning rate by 10 every lr_decay epochs')
 parser.add_argument('--dataset_train', default='TIMIT', choices=['TIMIT', 'mscoco_train'], help='Data set used for training the model')
-parser.add_argument('--dataset_test', default='mscoco2k', choices=['mscoco2k', 'mscoco20k'], help='Data set used for training the model')
+parser.add_argument('--dataset_test', default='mscoco2k', choices=['mscoco2k', 'mscoco20k', 'mscoco_imbalanced'], help='Data set used for training the model')
 parser.add_argument('--n_epoch', type=int, default=20)
 parser.add_argument('--class2id_file', type=str, default=None)
 parser.add_argument('--n_class', type=int, default=62)
@@ -87,7 +87,7 @@ else:
 
 # TODO
 feat_configs = {}
-tasks = [1, 2, 3]
+tasks = [1, 3]
 #------------------#
 # Network Training #
 #------------------#
@@ -113,7 +113,7 @@ if 0 in tasks:
 #--------------------------------#
 if 1 in tasks:
   if args.pretrain_model_file is None:
-    args.pretrain_model_file = 'exp/blstm3_mscoco_train_sgd_lr_0.00001_mar25/audio_model.7.pth'
+    args.pretrain_model_file = '/ws/ifp-53_2/hasegawa/lwang114/summer2020/blstm3_mscoco_train_sgd_lr_0.00001_mar25/audio_model.7.pth'
   args.save_features = True
   validate(audio_model, test_loader, args)
 
@@ -167,7 +167,7 @@ if 3 in tasks:
   if args.dataset_test == 'mscoco20k' or args.dataset_test == 'mscoco2k':
     skip_ms = 10. # in ms
     audio_sequence_file = '%s%s_phone_info.json' % (datapath, args.dataset_test)
-  elif args.dataset_test = 'mscoco_imbalanced':
+  elif args.dataset_test == 'mscoco_imbalanced':
     skip_ms = 10. # in ms
     audio_sequence_file = '%smscoco_subset_1300k_phone_power_law_info.json' % args.dataset_test
   else: 
