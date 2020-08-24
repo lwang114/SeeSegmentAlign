@@ -109,7 +109,7 @@ def cluster_purity(pred, gold):
 
   return cp / n
 
-def boundary_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt', max_len=2000, return_results=False, debug=False, print_results=True):
+def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt', max_len=2000, return_results=False, debug=False, print_results=True):
   assert len(pred) == len(gold)
   n = len(pred)
   prec = 0.
@@ -146,7 +146,9 @@ def boundary_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt'
   if return_results:
     return recall, precision, f_measure
 
-def retrieval_metrics(pred, gold, concept2idx, pred_word_cluster_file="pred_clusters.json"):
+def token_retrieval_metrics(pred_file, gold_file):
+  # Extract word boundaries
+  with 
   assert len(list(gold)) == len(list(pred))
   n = len(list(gold))
   n_c = len(concept2idx.keys())
@@ -176,12 +178,12 @@ def retrieval_metrics(pred, gold, concept2idx, pred_word_cluster_file="pred_clus
   rec = np.mean(np.diag(confusion_mat) / np.maximum(np.sum(confusion_mat, axis=0), 1.))
   prec = np.mean(np.diag(confusion_mat) / np.maximum(np.sum(confusion_mat, axis=1), 1.))
   if rec <= 0. or prec <= 0.:
-    f_mea = 0.
+    f1 = 0.
   else:
-    f_mea = 2. / (1. / rec + 1. / prec)
-  print('Recall: ', rec)
-  print('Precision: ', prec)
-  print('F measure: ', f_mea) 
+    f1 = 2. / (1. / rec + 1. / prec)
+  print('Token recall: {}'.format(rec))
+  print('Token precision: {}'.format(prec))
+  print('Token f1: {}'.format(f1)) 
 
   with open(pred_word_cluster_file, "w") as f:
     json.dump(pred_word_clusters, f)
@@ -231,8 +233,18 @@ def word_IoU(pred, gold):
       n += 1
   return iou / n
 
-# Boundary retrieval metrics for word segmentation
-def segmentation_retrieval_metrics(pred, gold, tolerance=1):
+# TODO Boundary and token retrieval metrics for phone discovery
+def phone_discovery_retrieval_metrics(pred_file, gold_file, tolerance=1):
+  pred, gold = {}, {}
+  with open(pred_file, 'r') as fp,\
+       open(gold_file, 'r') as fg:
+    for line in fp:
+      if line.split()[0] == 'Class':
+        class_id = line.split(':')[0]
+        pred[class_id] = 
+      pred
+       
+
   assert len(pred) == len(gold)
   n = len(pred)
   prec = 0.
@@ -244,9 +256,7 @@ def segmentation_retrieval_metrics(pred, gold, tolerance=1):
     overlaps = 0.
     for i, p_wb in enumerate(p.tolist()[:-1]):
       for g_wb in g.tolist()[:-1]:
-        #if abs(g_wb[0] - p_wb[0]) <= tolerance and abs(g_wb[1] - p_wb[1]) <= tolerance:
-        iou = intersect_over_union(p_wb, g_wb) 
-        if abs(g_wb[1]-p_wb[1]) <= tolerance or iou > 0.5: 
+        if abs(g_wb - p_wb) <= tolerance: 
           overlaps += 1.
     
     rec +=  overlaps / len(g)   
@@ -258,9 +268,9 @@ def segmentation_retrieval_metrics(pred, gold, tolerance=1):
     f_measure = 0.
   else:
     f_measure = 2. / (1. / recall + 1. / precision)
-  print('Segmentation recall: ' + str(recall))
-  print('Segmentation precision: ' + str(precision))
-  print('Segmentation f_measure: ' + str(f_measure))
+  print('Boundary recall: {}'.format(recall))
+  print('Boundary precision: {}'.format(precision))
+  print('Boundary f1: {}'.format(f_measure))
 
 def intersect_over_union(pred, gold):
   p_start, p_end = pred[0], pred[1]
