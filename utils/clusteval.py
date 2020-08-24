@@ -146,47 +146,117 @@ def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt
   if return_results:
     return recall, precision, f_measure
 
-def token_retrieval_metrics(pred_file, gold_file):
-  # Extract word boundaries
-  with 
-  assert len(list(gold)) == len(list(pred))
-  n = len(list(gold))
-  n_c = len(concept2idx.keys())
-  
-  pred_word_clusters = {}
-  confusion_mat = np.zeros((n_c, n_c))
-  for i_ex, (g, p) in enumerate(zip(gold, pred)):
-    print("alignment %d" % i_ex)
-    g_ali, p_ali = g["alignment"], p["alignment"]
-    g_c = g["image_concepts"]
-    g_word_boundaries = _findWords(g_ali)
-    p_word_boundaries = _findWords(p_ali)
-    for p_w_b in p_word_boundaries:
-      #print(set(p_ali[p_w_b[0]:p_w_b[1]]))
-      p_c = p_ali[p_w_b[0]]
-      if p_c not in pred_word_clusters:
-        pred_word_clusters[p_c] = []
-      pred_word_clusters[p_c].append((i_ex, p_w_b))
-       
-    for g_w_b in g_word_boundaries:
-      g_w = g_ali[g_w_b[0]:g_w_b[1]]
-      p_w = p_ali[g_w_b[0]:g_w_b[1]]
-      for i_g_a, i_p_a in zip(g_w, p_w):
-        i_g_c, i_p_c = concept2idx[g_c[i_g_a]], concept2idx[g_c[i_p_a]]
-        confusion_mat[i_g_c, i_p_c] += 1.
-        
-  rec = np.mean(np.diag(confusion_mat) / np.maximum(np.sum(confusion_mat, axis=0), 1.))
-  prec = np.mean(np.diag(confusion_mat) / np.maximum(np.sum(confusion_mat, axis=1), 1.))
-  if rec <= 0. or prec <= 0.:
-    f1 = 0.
-  else:
-    f1 = 2. / (1. / rec + 1. / prec)
-  print('Token recall: {}'.format(rec))
-  print('Token precision: {}'.format(prec))
-  print('Token f1: {}'.format(f1)) 
+def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
+  # Calculate boundary F1 and token F1 scores from text files
+  # Inputs:
+  # ------
+  #   pred_file: text file of the following format:
+  #     Class 0:
+  #     arr_0  [start time]  [end time]
+  #     ...
+  #     Class n:
+  #     arr_0  [start time] [end time] 
+  #     ...
+  #   
+  #   gold file: text file of the following format:
+  #     arr_0 [start time] [end time] [phone label]
+  #     ...
+  #     arr_N [start time] [end time] [phone label]
+  pred_boundaries, gold_boundaries = {}, {}
+  pred_units, gold_units = {}, {}
+  with open(pred_file, 'r') as f_p,\
+       open(gold_file, 'r') as f_g:
+    # Parse the discovered unit file
+    class_idx = -1
+    for line in f_p:
+      if line == '\n\n':
+        continue
+      if line.split()[0] == 'Class':
+        class_idx = int(line.split(':')[0].split()[-1]) 
+      else:
+        example_id, start, end = line.split()
+        start, end = float(start), float(end)
+        if not example_id in pred_units:
+          pred_boundaries[example_id] = [end]
+          pred_units[example_id] = [class_idx]
+        elif end > pred_boundaries[example_id][-1]:
+          pred_boundaries[example_id].append(end)
+          pred_units[example_id].append(class_idx)
+        elif end < pred_boundaries[example_id][-1]:
+          pred_boundaries[example_id].insert(0, end)
+          pred_units[example_id].insert(0, class_idx)
+    
+    if phone2idx_file:
+      with open(phone2idx_file, 'r') as f_i:
+        phone2idx = json.load(f_i)
+        n_phones = len(phone2idx) 
+    else:
+      phone2idx = {}
+      n_phones = 0
+    for line in f_g:
+      example_id, start, end, phn = line.split()
+      if not phn in phone2idx:
+        phone2idx[phn] = n_phones
+        n_phones += 1
+        class_idx = n_phones
+      else:
+        class_idx = phone2idx[phn]
+      start, end = float(start), float(end)        
+      if not example_id in pred_units:
+        gold_boundaries[example_id] = [end]
+        gold_units[example_id] = [class_idx]
+        elif end > gold_boundaries[example_id][-1]:
+          gold_boundaries[example_id].append(end)
+          gold_units[example_id].append(class_idx)
+        elif end < gold_boundaries[example_id][-1]:
+          gold_boundaries[example_id].insert(0, end)
+          gold_units[example_id].insert(0, class_idx)
+    print('Number of phone classes: {}'.format(n_phones))
 
-  with open(pred_word_cluster_file, "w") as f:
-    json.dump(pred_word_clusters, f)
+  n = len(gold_boundaries)  
+  n_gold_segments = 0
+  n_pred_segments = 0
+  n_correct_segments = 0
+  token_confusion = np.zeros((n_phones, n_phones))
+  for i_ex, example_id in enumerate(sorted(gold_boundaries, key=lambda x:int(x.split('_')[-1]))):
+    print("Example %d" % i_ex)
+    cur_gold_boundaries = gold_boundaries[example_id].insert(0, 0) 
+    n_gold_segments += len(cur_gold_boundaries[1:])
+    cur_gold_units = gold_units[example_id]
+
+    cur_pred_boundaries = pred_boundaries[example_id].insert(0, 0)
+    n_pred_segments += len(cur_pred_boundaries[1:])
+    cur_pred_units = pred_units[example_id]
+
+    for gold_start, gold_end, gold_unit in zip(cur_gold_boundaries[:-1], cur_gold_boundaries[1:], cur_gold_units):      
+      found = 0
+      for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
+        if (abs(pred_end - gold_end) <= 3 and abs(pred_start - gold_start) <= 3) or IoU((pred_start, pred_end), (gold_start, gold_end)) > 0.5:
+          n_correct_segments += 1
+          found = 1
+          break
+      if found:
+        token_confusion[gold_unit, pred_unit] += 1          
+
+  boundary_rec = n_correct_segments / n_gold_segments
+  boundary_prec = n_correct_segments / n_pred_segments
+  if boundary_rec <= 0. or boundary_prec <= 0.:
+    boundary_f1 = 0.
+  else:
+    boundary_f1 = 2. / (1. / boundary_rec + 1. / boundary_prec)
+  print('Boundary recall: {}'.format(boundary_rec))
+  print('Boundary precision: {}'.format(boundary_prec))
+  print('Boundary f1: {}'.format(boundary_f1))
+
+  token_rec = np.mean(np.diag(token_confusion) / np.maximum(np.sum(confusion_mat, axis=0), 1.))
+  token_prec = np.mean(np.diag(token_confusion) / np.maximum(np.sum(confusion_mat, axis=1), 1.))
+  if token_rec <= 0. or token_prec <= 0.:
+    token_f1 = 0.
+  else:
+    token_f1 = 2. / (1. / token_rec + 1. / token_prec)
+  print('Token recall: {}'.format(token_rec))
+  print('Token precision: {}'.format(token_prec))
+  print('Token f1: {}'.format(token_f1)) 
 
 def accuracy(pred, gold, max_len=2000):
   if DEBUG:
@@ -227,52 +297,13 @@ def word_IoU(pred, gold):
     for p_wb in p_word_boundaries: 
       n_overlaps = []
       for g_wb in g_word_boundaries:
-        n_overlaps.append(intersect_over_union(g_wb, p_wb))
+        n_overlaps.append(IoU(g_wb, p_wb))
       max_iou = max(n_overlaps)
       iou += max_iou
       n += 1
   return iou / n
 
-# TODO Boundary and token retrieval metrics for phone discovery
-def phone_discovery_retrieval_metrics(pred_file, gold_file, tolerance=1):
-  pred, gold = {}, {}
-  with open(pred_file, 'r') as fp,\
-       open(gold_file, 'r') as fg:
-    for line in fp:
-      if line.split()[0] == 'Class':
-        class_id = line.split(':')[0]
-        pred[class_id] = 
-      pred
-       
-
-  assert len(pred) == len(gold)
-  n = len(pred)
-  prec = 0.
-  rec = 0.
-
-  # Local retrieval metrics
-  for n_ex, (p, g) in enumerate(zip(pred, gold)):
-    #print(p, g)
-    overlaps = 0.
-    for i, p_wb in enumerate(p.tolist()[:-1]):
-      for g_wb in g.tolist()[:-1]:
-        if abs(g_wb - p_wb) <= tolerance: 
-          overlaps += 1.
-    
-    rec +=  overlaps / len(g)   
-    prec += overlaps / len(p)
-           
-  recall = rec / n
-  precision = prec / n
-  if recall <= 0. or precision <= 0.:
-    f_measure = 0.
-  else:
-    f_measure = 2. / (1. / recall + 1. / precision)
-  print('Boundary recall: {}'.format(recall))
-  print('Boundary precision: {}'.format(precision))
-  print('Boundary f1: {}'.format(f_measure))
-
-def intersect_over_union(pred, gold):
+def IoU(pred, gold):
   p_start, p_end = pred[0], pred[1]
   g_start, g_end = gold[0], gold[1]
   i_start, u_start = max(p_start, g_start), min(p_start, g_start)  
@@ -327,6 +358,9 @@ if __name__ == '__main__':
   with open(args.exp_dir+'model_names.txt', 'r') as f:
     model_names = f.read().strip().split()
 
+  #----------------------------#
+  # Create Majority Prediction #
+  #----------------------------#
   if 0 in tasks:
     with open(gold_json, 'r') as f:
       gold_dict = json.load(f)
@@ -344,9 +378,9 @@ if __name__ == '__main__':
     
     with open('%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, 'majority'), 'w') as f:
       json.dump(majority_dict, f, indent=4, sort_keys=True)
-  #----------------------------------#
-  # Clustering and Alignment Metrics #
-  #----------------------------------#
+  #-------------------#
+  # Alignment Metrics #
+  #-------------------#
   if 1 in tasks:
     for model_name in model_names:
       pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
@@ -366,6 +400,23 @@ if __name__ == '__main__':
         gold.append([concept2idx[str(c)] for c in g['image_concepts']])
  
       print('Accuracy: ', accuracy(pred_dict, gold_dict))
-      boundary_retrieval_metrics(pred_dict, gold_dict, debug=False)
-      cluster_confusion_matrix(gold, pred, file_prefix='%s_%s_image_confusion_matrix' % (args.exp_dir + args.dataset, model_name))
-      cluster_confusion_matrix(gold, pred, alignment=gold_dict, file_prefix='%s_%s_audio_confusion_matrix' % (args.exp_dir + args.dataset, model_name))
+      alignment_retrieval_metrics(pred_dict, gold_dict, debug=False)
+  #------------------------#
+  # Term Discovery Metrics #
+  #------------------------#
+  if 2 in tasks: # TODO
+    # Try using gold landmarks to generate pred_file and evaluate it using gold_file
+    landmark_file = '' 
+    landmark_dict = np.load(landmark_file)
+    pred_file = 'discovered_phones_mscoco2k.class'
+    gold_file = 'mscoco2k_units.phn'
+    phone2idx_file = 'phone2idx.json'
+    with open(pred_file, 'w') as f:
+      f.write('Class 0\n')
+      for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
+        for start, end in zip(landmark_dict[example_id][:-1], landmark_dict[example_id][1:]):
+          f.write('{} {} {}\n'.format(example_id, start, end))
+    
+    term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file):
+     
+
