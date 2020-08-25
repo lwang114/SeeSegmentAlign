@@ -231,19 +231,25 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
     print("Example %d" % i_ex)
     cur_gold_boundaries = gold_boundaries[example_id]
     n_gold_segments += len(cur_gold_boundaries)
-    cur_gold_boundaries.insert(0, 0)
+    if cur_gold_boundaries[0] != 0:
+      cur_gold_boundaries.insert(0, 0)
     cur_gold_units = gold_units[example_id]
 
     cur_pred_boundaries = pred_boundaries[example_id]
     n_pred_segments += len(cur_pred_boundaries)
-    cur_pred_boundaries.insert(0, 0)
+    if cur_gold_boundaries[0] != 0:
+      cur_pred_boundaries.insert(0, 0)
     cur_pred_units = pred_units[example_id]
 
     for gold_start, gold_end, gold_unit in zip(cur_gold_boundaries[:-1], cur_gold_boundaries[1:], cur_gold_units):      
+      for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
+        if abs(pred_end - gold_end) <= 3:
+          n_correct_segments += 1
+          break
+
       found = 0
       for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
         if (abs(pred_end - gold_end) <= 3 and abs(pred_start - gold_start) <= 3) or IoU((pred_start, pred_end), (gold_start, gold_end)) > 0.5:
-          n_correct_segments += 1
           found = 1
           break
       if found:
