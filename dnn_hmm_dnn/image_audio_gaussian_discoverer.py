@@ -663,9 +663,7 @@ class ImageAudioGaussianHMMDiscoverer:
             'image_concepts': clustersV,
             'phone_clusters': clustersA,
             'alignment': alignment,
-            'align_probs': alignProbs,
-            'concept_probs': self.conceptCounts[i].tolist(),
-            'is_phoneme': isPhoneme
+            'align_probs': alignProbs
           }
       aligns.append(align_info)
       for a in alignment:
@@ -710,6 +708,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--feat_type', '-f', choices=['kamper', 'kamper_kaldi', 'transformer_embed', 'transformer_enc_last']+['transformer_enc_{}'.format(i+1) for i in range(11)])
   parser.add_argument('--dataset', '-d', choices=['mscoco2k', 'mscoco_imbalanced'], help='Type of dataset')
+  parser.add_argument('--exp_dir', '-e', help='Experiment directory')
   parser.add_argument('--task', '-t', type=int, help='Task index')
   args = parser.parse_args()
   tasks = [args.task]
@@ -813,12 +812,13 @@ if __name__ == '__main__':
   # Phone discovery on MSCOCO #
   #---------------------------#
   if 2 in tasks:      
-    speechFeatureFile = '../data/mscoco2k_ctc_unsegmented.npz'
-    imageFeatureFile = '../data/mscoco2k_res34_embed512dim.npz'
-    durationFile = '../data/mscoco2k_landmarks_dict.npz'
+    datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+    speechFeatureFile = '{}/{}_{}_subphone.npz'.format(datapath, args.dataset, args.feat_type)
+    imageFeatureFile = '{}/mscoco2k_res34_embed512dim.npz'.format(datapath)
+    durationFile = None
     
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 50, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'ctc'}
-    modelName = 'exp/june24_mscoco2k_train_blstm2_%s_momentum%.2f_lr%.5f_gaussiansoftmax/image_audio' % (modelConfigs['feat_type'], modelConfigs['momentum'], modelConfigs['learning_rate']) 
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'ctc'}
+    modelName = '{}/image_audio_phone' % args.exp_dir 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
