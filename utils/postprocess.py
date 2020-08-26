@@ -155,7 +155,8 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
                                    split_file = None,
                                    landmark_file=None, 
                                    hierarchical = False,
-                                   include_null = False):
+                                   include_null = False,
+                                   has_phone_alignment = False):
   # TODO Add tolerance
   f = open(phone_corpus, 'r')
   a_corpus = []
@@ -197,16 +198,16 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
     
     # Cases: 
     # If the concept labels are not available to the system, use the concept alignment
-    # Else use the concept labels
-    if 'concept_alignment' in align_info:
+    # Else use the concept labels 
+    if has_phone_alignment:
       n_concepts = max(alignment) + 1
-      concept_alignment = align_info['concept_alignment']
-      image_concepts = [-1]*n_concepts 
-      i_prev = -1
-      for c, i in zip(concept_alignment, alignment):
-        if i != i_prev:
-          image_concepts[i] = c
-          i_prev = i
+      if 'phone_clusters' in align_info:
+        phone_alignment = align_info['phone_clusters']
+      else: 
+        phone_alignment = align_info['image_concepts']
+      image_concepts = ['' for _ in range(n_concepts)]
+      for phn, i in zip(phone_alignment, alignment):
+        image_concepts[i] += '{},'.format(phn)
     elif hierarchical:
       image_concepts = [c for cc in align_info['image_concepts'] for c in cc.split(',')]
     else:
@@ -381,7 +382,7 @@ def segmentation_to_word_classes(segmentation_file,
             word_units[seg] = ['%s %d %d\n' % (pair_id, start, end)]
           else:
             word_units[seg].append('%s %d %d\n' % (pair_id, start, end)) 
-    if 'image_concepts' in data_info[0]:
+    elif 'image_concepts' in data_info[0]:
       for ex, datum_info in enumerate(data_info):
         if ex > 199: # XXX
           continue
@@ -404,6 +405,7 @@ def segmentation_to_word_classes(segmentation_file,
 def segmentation_to_phone_classes(segmentation_file,
                                  phone_class_file='phones.class',
                                  phone_corpus_file = None,
+                                 landmark_file = None,
                                  split_file = None,
                                  include_null = False):
   phone_units = {}
@@ -414,7 +416,38 @@ def segmentation_to_phone_classes(segmentation_file,
   with open(segmentation_file, 'r') as f:
     data_info = json.load(f)
   
-  if 'image_concepts' in data_info[0]:
+  if landmark_file:
+    lms = np.load(landmark_file)
+
+  if 'phone_clusters' in data_info[0]:
+    for ex, datum_info in enumerate(data_info):
+      if ex > 199: # XXX
+        continue
+      pair_id = 'arr_' + str(ex)
+      phone_labels = datum_info['phone_clusters']
+      if landmark_file:
+        cur_lms = lms[pair_id]
+      T_start, T_end = 0, len(phone_labels) 
+      prev_label = -1
+      prev_end = 0
+      for start, phone_label in enumerate(phone_labels): 
+        end = start + 1
+        if start == T_start:
+          prev_label = phone_label
+        
+        if phone_label != prev_label or end == T_end:
+          if not prev_label in phone_units:
+            if landmark_file:
+              phone_units[prev_label] = ['%s %d %d\n' % (pair_id, cur_lms[prev_end], cur_lms[end])]
+            else:
+              phone_units[prev_label] = ['%s %d %d\n' % (pair_id, prev_end, end)]
+          elif landmark_file:
+            phone_units[prev_label].append('%s %d %d\n' % (pair_id, cur_lms[prev_end], cur_lms[end]))
+          else:
+            phone_units[prev_label].append('%s %d %d\n' % (pair_id, prev_end, end))
+          prev_end = end
+          prev_label = phone_label
+  elif 'image_concepts' in data_info[0]:
     for ex, datum_info in enumerate(data_info):
       if ex > 199: # XXX
         continue
@@ -422,11 +455,11 @@ def segmentation_to_phone_classes(segmentation_file,
       word_labels = datum_info['image_concepts']
       segmentation = datum_info['segmentation']
       for word_label, start, end in zip(word_labels, segmentation[:-1], segmentation[1:]):
-        for i_phn, phone_label in enumerate(word_label.split(',')):
+        for i_phn, phone_label in enumerate(word_label.split(',')): 
           if not phone_label in phone_units:
             phone_units[phone_label] = ['%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1)]
           else:
-            phone_units[phone_label].append('%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1)) 
+            phone_units[phone_label].append('%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1))
 
   with open(phone_class_file, 'w') as f:
     for i_c, c in enumerate(phone_units):
@@ -434,8 +467,6 @@ def segmentation_to_phone_classes(segmentation_file,
       f.write('Class %d:\n' % i_c)
       f.write(''.join(phone_units[c]))
       f.write('\n')
-
-
 
 def _findPhraseFromPhoneme(sent, alignment):
   if not hasattr(sent, '__len__') or not hasattr(alignment, '__len__'):
@@ -545,11 +576,10 @@ def convert_landmark_segment_to_10ms_segmentation(landmark_segment_file, landmar
     # print('lm_segment: ', lm_segments[i])
     # print('lm2frame: ', lm2frame['arr_'+str(i)])
     # print('len(lm_segment), len(lm2frame): ', len(lm_segments[i]), len(lm2frame['arr_'+str(i)]))
-
     cur_frame_segments = []
     lm2frame_i = lm2frame[utt_id]
     if lm2frame_i[0] != 0:
-      lm2frame_i = np.insert(lm2frame_i, 0, 0)
+      lm2frame_i = np.insert(lm2frame_i, 0, 0) 
     for cur_lm_segment in lm_segments[i]:  
       cur_frame_segments.append(lm2frame_i[cur_lm_segment])
     frame_segments.append(np.asarray(cur_frame_segments))

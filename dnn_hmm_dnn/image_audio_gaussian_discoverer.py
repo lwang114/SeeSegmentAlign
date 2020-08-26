@@ -212,7 +212,6 @@ class ImageAudioGaussianHMMDiscoverer:
       if printStatus:
         print('Epoch %d takes %.2f s to finish' % (epoch, time.time() - begin_time))
     
-    self.conceptPhoneCounts = conceptPhoneCounts
     np.save(self.modelName+'_likelihoods.npy', likelihoods)
 
   # Inputs:
@@ -650,8 +649,7 @@ class ImageAudioGaussianHMMDiscoverer:
     for i, (aSen, vSen) in enumerate(zip(self.aCorpus, self.vCorpus)):
       alignment, alignProbs = self.align(aSen, vSen, debug=debug)
       clustersV, clusterProbs = self.cluster(aSen, vSen, alignment)
-      clustersA = np.argmax(np.sum(self.conceptPhoneCounts[i], axis=1), axis=-1).tolist()
-      conceptAlignment = np.argmax(np.sum(self.conceptPhoneCounts[i], axis=-1), axis=-1).tolist() 
+      clustersA = np.argmax(self.softmaxLayerA(aSen), axis=-1).tolist()
       if self.downsampleRate > 1:
         alignment_new = []
         for a in alignment:
@@ -813,20 +811,20 @@ if __name__ == '__main__':
   #---------------------------#
   if 2 in tasks:      
     datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
-    speechFeatureFile = '{}/{}_{}_subphone.npz'.format(datapath, args.dataset, args.feat_type)
+    speechFeatureFile = '{}/embedding_mats.npz'.format(args.exp_dir)
     imageFeatureFile = '{}/mscoco2k_res34_embed512dim.npz'.format(datapath)
     durationFile = None
     
-    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': 'ctc'}
-    modelName = '{}/image_audio_phone' % args.exp_dir 
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': args.feat_type}
+    modelName = '{}/image_audio_phone'.format(args.exp_dir) 
     print(modelName)
 
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(30, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', debug=False)
-  #---------------------------#
+  #--------------------------#
   # Word discovery on MSCOCO #
-  #---------------------------#
+  #--------------------------#
   if 3 in tasks:      
     datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
     if args.feat_type.split('_')[0] == 'kamper':
@@ -856,3 +854,21 @@ if __name__ == '__main__':
     model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName=modelName)
     model.trainUsingEM(20, writeModel=True, debug=False)
     model.printAlignment(modelName+'_alignment', debug=False)
+  #------------------------------#
+  # Align using pretrained model #
+  #------------------------------#
+  if 4 in tasks:
+    modelName = 'image_audio_phone_iter=29.txt'
+    datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+    speechFeatureFile = '{}/embedding_mats.npz'.format(args.exp_dir)
+    imageFeatureFile = '{}/mscoco2k_res34_embed512dim.npz'.format(datapath)
+    durationFile = None
+    modelConfigs = {'has_null': False, 'n_words': 65, 'n_phones': 49, 'momentum': 0.0, 'learning_rate': 0.1, 'duration_file': durationFile, 'feat_type': args.feat_type, 'init_prob_file': '{}/{}_initialprobs.txt'.format(args.exp_dir, modelName),
+                    'trans_prob_file': '{}/{}_transitionprobs.txt'.format(args.exp_dir, modelName),
+                    'phone_prob_file': '{}/{}_phoneprobs.npy'.format(args.exp_dir, modelName),
+                    'audio_anchor_file': '{}/{}_audioanchors.npy'.format(args.exp_dir, modelName),
+                    'visual_anchor_file': '{}/{}_visualanchors.npy'.format(args.exp_dir, modelName)
+                    }
+    model = ImageAudioGaussianHMMDiscoverer(speechFeatureFile, imageFeatureFile, modelConfigs, modelName='{}/{}'.format(args.exp_dir, modelName))
+    model.trainUsingEM(0)
+    model.printAlignment('{}/{}_alignment'.format(args.exp_dir, modelName), debug=False) 

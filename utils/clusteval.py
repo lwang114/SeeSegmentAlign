@@ -146,7 +146,7 @@ def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt
   if return_results:
     return recall, precision, f_measure
 
-def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
+def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, tol=3):
   # Calculate boundary F1 and token F1 scores from text files
   # Inputs:
   # ------
@@ -168,15 +168,17 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
        open(gold_file, 'r') as f_g:
     # Parse the discovered unit file
     class_idx = -1
+    n_class = 0
     i = 0
     for line in f_p:
       # if i > 30: # XXX
       #   break
       # i += 1
-      if line == '\n\n':
+      if line == '\n':
         continue
       if line.split()[0] == 'Class':
         class_idx = int(line.split(':')[0].split()[-1]) 
+        n_class += 1
       else:
         example_id, start, end = line.split()
         start, end = float(start), float(end)
@@ -189,7 +191,7 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
         elif end < pred_boundaries[example_id][-1]:
           pred_boundaries[example_id].insert(0, end)
           pred_units[example_id].insert(0, class_idx)
-    
+
     if phone2idx_file:
       with open(phone2idx_file, 'r') as f_i:
         phone2idx = json.load(f_i)
@@ -220,15 +222,15 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
       elif end < gold_boundaries[example_id][-1]:
         gold_boundaries[example_id].insert(0, end)
         gold_units[example_id].insert(0, class_idx)
-    print('Number of phone classes: {}'.format(n_phones))
+    print('Number of phone classes, number of phone clusters: {} {}'.format(n_phones, n_class))
 
   n = len(gold_boundaries)  
   n_gold_segments = 0
   n_pred_segments = 0
   n_correct_segments = 0
-  token_confusion = np.zeros((n_phones, n_phones))
+  token_confusion = np.zeros((n_phones, n_class))
   for i_ex, example_id in enumerate(sorted(gold_boundaries, key=lambda x:int(x.split('_')[-1]))):
-    print("Example %d" % i_ex)
+    # print("Example %d" % i_ex)
     cur_gold_boundaries = gold_boundaries[example_id]
     n_gold_segments += len(cur_gold_boundaries)
     if cur_gold_boundaries[0] != 0:
@@ -249,7 +251,7 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None):
 
       found = 0
       for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
-        if (abs(pred_end - gold_end) <= 3 and abs(pred_start - gold_start) <= 3) or IoU((pred_start, pred_end), (gold_start, gold_end)) > 0.5:
+        if (abs(pred_end - gold_end) <= tol and abs(pred_start - gold_start) <= tol) or IoU((pred_start, pred_end), (gold_start, gold_end)) > 0.5:
           found = 1
           break
       if found:
@@ -356,6 +358,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
   parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
+  parser.add_argument('--tolerance', '-t', type=float, default=3, help='Tolerance for boundary F1')
   args = parser.parse_args()
   if args.dataset == 'flickr':
     gold_json = '../data/flickr30k/phoneme_level/flickr30k_gold_alignment.json'
@@ -404,6 +407,7 @@ if __name__ == '__main__':
 
     with open(concept2idx_file, 'r') as f:
       concept2idx = json.load(f) 
+
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
     
@@ -431,15 +435,22 @@ if __name__ == '__main__':
   #------------------------#
   if 2 in tasks: # TODO
     # Try using gold landmarks to generate pred_file and evaluate it using gold_file
-    landmark_file = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_subphone_landmarks_dict.npz' 
+    landmark_file = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_landmarks_dict.npz' 
     landmark_dict = np.load(landmark_file)
-    pred_file = 'discovered_phones_mscoco2k.class'
-    gold_file = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/mscoco2k_phone_units.phn'
+    gold_file = args.exp_dir + 'mscoco2k_phone_units.phn'
     phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
+
+    with open(args.exp_dir+'model_names.txt', 'r') as f:
+      model_names = f.read().strip().split()
+
+    '''
     with open(pred_file, 'w') as f:
       f.write('Class 0\n')
       for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
         for start, end in zip(landmark_dict[example_id][:-1], landmark_dict[example_id][1:]):
           f.write('{} {} {}\n'.format(example_id, start, end))
-    
-    term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file)
+    '''
+    for model_name in model_names:
+      print(model_name)
+      pred_file = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/discovered_words_{}.class'.format(model_name)     
+      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance)

@@ -91,7 +91,7 @@ if 0 in tasks:
     pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
   
     for i, (model_name, pred_alignment_file) in enumerate(zip(model_names, pred_alignment_files)):
-      has_phone_alignment = 'mbesgmm' in model_name.split('_') or 'besgmm' in model_name.split('_')
+      has_phone_alignment = 'mbesgmm' in model_name.split('_') or 'besgmm' in model_name.split('_') 
 
       discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name)
 
@@ -106,7 +106,7 @@ if 0 in tasks:
           alignment_to_word_classes(pred_alignment_file, phone_corpus, word_class_file=discovered_word_file, hierarchical=args.hierarchical, include_null=True, landmark_file=pred_landmark_file, has_phone_alignment=has_phone_alignment)  
         else:
           alignment_to_word_classes(pred_alignment_file, phone_corpus, word_class_file=discovered_word_file, hierarchical=args.hierarchical, include_null=True, has_phone_alignment=has_phone_alignment)
-      elif args.result_type == 'segment':
+      elif args.result_type == 'segment' and args.level == 'word':
         segmentation_to_word_classes(pred_alignment_file, word_class_file=discovered_word_file, include_null=True)
 
 #---------------------------#
@@ -243,71 +243,25 @@ if 2 in tasks:
     for k in range(args.nfolds):
       pred_alignment_files = ['%s%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
       split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
-      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
+      if args.result_type == 'alignment':
+        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
   else:
     if args.result_type == 'segment':
       pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
       for pred_alignment_file, discovered_word_file in zip(pred_alignment_files, disc_clsfiles):
         print(pred_alignment_file, discovered_word_file)
-        segmentation_to_phone_classes(pred_alignment_file, phone_class_file=discovered_word_file, include_null=True)
+        pred_landmark_file = None
+        if args.convert_to_frame:
+          pred_landmark_file = args.exp_dir + 'landmarks_dict.npz'
+        segmentation_to_phone_classes(pred_alignment_file, phone_class_file=discovered_word_file, landmark_file=pred_landmark_file, include_null=True)
 
   if args.nfolds > 1:
     os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
     for model_name in model_names:
       print('model name: ', model_name)
-      grouping_f1s = np.zeros((args.nfolds,))
-      coverages = np.zeros((args.nfolds,))
-      boundary_f1s = np.zeros((args.nfolds,))
-      neds = np.zeros((args.nfolds,))
-      token_f1s = np.zeros((args.nfolds,))
-      type_f1s = np.zeros((args.nfolds,))
-
       for k in range(args.nfolds):
-        disc_clsfile = '%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
-        phn_path = pkg_resources.resource_filename(
-                  pkg_resources.Requirement.parse('WDE'),
-                              'WDE/share/%s_split_%d_phone_units.phn' % (args.dataset, k))
-        gold = Gold(wrd_path=phn_path, 
-                    phn_path=phn_path) 
-        discovered = Disc(disc_clsfile, gold) 
-        print(model_name)
-        grouping = Grouping(discovered)
-        grouping.compute_grouping()
-        grouping_f1s[k] = 2 * np.maximum(grouping.precision, EPS) * np.maximum(grouping.recall, EPS) / np.maximum(grouping.precision + grouping.recall, EPS)   
-        print('Grouping precision and recall: ', grouping.precision, grouping.recall)
-        #print('Grouping fscore: ', grouping.fscore)
-
-        coverage = Coverage(gold, discovered)
-        coverage.compute_coverage()
-        coverages[k] = coverage.coverage
-        print('Coverage: ', coverage.coverage)
-
-        boundary = Boundary(gold, discovered)
-        boundary.compute_boundary()
-        boundary_f1s[k] = 2 * np.maximum(boundary.precision, EPS) * np.maximum(boundary.recall, EPS) / np.maximum(boundary.precision + boundary.recall, EPS)
-        print('Boundary precision and recall: ', boundary.precision, boundary.recall)
-        #print('Boundary fscore: ', boundary.fscore)
-
-        # ned = Ned(discovered)
-        # ned.compute_ned()
-        # neds[k] = ned.ned
-        # print('NED: ', ned.ned)
-
-        token_type = TokenType(gold, discovered)
-        token_type.compute_token_type()
-        token_f1s[k] = 2 * np.maximum(token_type.precision[0], EPS) * np.maximum(token_type.recall[0], EPS) / np.maximum(token_type.precision[0] + token_type.recall[0], EPS)
-        if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k': 
-          type_f1s[k] = np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1] / 2, EPS) # XXX the definition of class in mscoco double counts each concept
-        else:
-          type_f1s[k] = 2 * np.maximum(token_type.precision[1], EPS) * np.maximum(token_type.recall[1], EPS) / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)
-        print('Token type precision and recall: ', token_type.precision, token_type.recall)
-        #print('Token type fscore: ', token_type.fscore)    
-      print('Average Grouping F1: ', np.mean(grouping_f1s), np.std(grouping_f1s))
-      print('Average Boundary F1: ', np.mean(boundary_f1s), np.std(boundary_f1s))
-      print('Average Token F1: ', np.mean(token_f1s), np.std(token_f1s)) 
-      print('Average Type F1: ', np.mean(type_f1s), np.std(type_f1s)) 
-      print('Average Coverage: ', np.mean(coverages), np.std(coverages))
-      # print('Average NED: ', np.mean(neds), np.std(neds))
+        pred_file = '%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
+        term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance)       
   else:   
     for model_name, pred_file in zip(model_names, disc_clsfiles):
       print('model name: ', model_name)
