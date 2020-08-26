@@ -601,6 +601,53 @@ def plot_posterior_gap_curve(exp_dir):
   plt.savefig(exp_dir+'avg_posterior_gap')
   plt.close()
 
+# TODO
+'''
+def plot_F1_vs_EM_iteration(exp_dir):
+  f1_data = {'Number of Iterations':[],\
+             'Average Log Likelihood':[],\
+             'Model Name':[]}
+  for datafile in os.listdir(exp_dir):
+    if datafile.split('.')[0].split('_')[-1] != 'likelihoods':
+      continue
+    
+    likelihoods = np.load(exp_dir + datafile)
+    likelihoods = likelihoods[:20] # XXX
+    model_name = datafile.split('.')[0].split('_')[0]
+
+    if len(datafile.split('.')[0].split('_')) == 2:
+      print(model_name)
+      if model_name == 'phone' or model_name == 'image':
+        likelihood_data['Model Name'] += ['HMM'] * len(likelihoods)
+      elif model_name == 'cascade':
+        likelihood_data['Model Name'] += ['Cascade HMM-CRP'] * len(likelihoods)
+      elif model_name == 'end-to-end':
+        likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods) 
+      else:
+        likelihood_data['Model Name'] += [model_name] * len(likelihoods)
+    else:
+      if datafile.split('.')[0].split('_')[1][:5] == 'alpha':
+        digits = datafile.split('.')[0].split('_')[1][5:]
+        nd = 0
+        for d in digits:
+          if int(d) == 0:
+            nd += 1
+          else:
+            break
+        model_name = '\\alpha={}'.format(float(digits) / 10**(nd))
+        likelihood_data['Model Name'] += [model_name] * len(likelihoods)
+        
+    likelihood_data['Number of Iterations'] += list(range(len(likelihoods)))
+    likelihood_data['Average Log Likelihood'] += likelihoods.tolist()
+
+  print(len(likelihood_data['Number of Iterations']), len(likelihood_data['Average Log Likelihood']), len(likelihood_data['Model Name']))
+  likelihood_df = pd.DataFrame(likelihood_data)
+  ax = sns.lineplot(x='Number of Iterations', y='Average Log Likelihood', hue='Model Name', data=likelihood_df)
+  plt.show()
+  plt.savefig(exp_dir+'avg_log_likelihood')
+  plt.close() 
+'''
+
 if __name__ == '__main__': 
   tasks = [4]
   parser = argparse.ArgumentParser()
