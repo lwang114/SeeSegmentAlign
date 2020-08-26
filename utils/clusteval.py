@@ -146,7 +146,7 @@ def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt
   if return_results:
     return recall, precision, f_measure
 
-def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, tol=3):
+def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, tol=3, visualize=False, out_file='scores'):
   # Calculate boundary F1 and token F1 scores from text files
   # Inputs:
   # ------
@@ -263,9 +263,6 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
     boundary_f1 = 0.
   else:
     boundary_f1 = 2. / (1. / boundary_rec + 1. / boundary_prec)
-  print('Boundary recall: {}'.format(boundary_rec))
-  print('Boundary precision: {}'.format(boundary_prec))
-  print('Boundary f1: {}'.format(boundary_f1))
 
   token_rec = np.mean(np.max(token_confusion, axis=0) / np.maximum(np.sum(token_confusion, axis=0), 1.))
   token_prec = np.mean(np.max(token_confusion, axis=1) / np.maximum(np.sum(token_confusion, axis=1), 1.))
@@ -273,9 +270,25 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
     token_f1 = 0.
   else:
     token_f1 = 2. / (1. / token_rec + 1. / token_prec)
-  print('Token recall: {}'.format(token_rec))
-  print('Token precision: {}'.format(token_prec))
-  print('Token f1: {}'.format(token_f1)) 
+  
+  with open('{}.txt'.format(outfile), 'r') as f:
+    f.write('Boundary recall: {}\n'.format(boundary_rec))
+    f.write('Boundary precision: {}\n'.format(boundary_prec))
+    f.write('Boundary f1: {}\n'.format(boundary_f1))
+    f.write('Token recall: {}\n'.format(token_rec))
+    f.write('Token precision: {}\n'.format(token_prec))
+    f.write('Token f1: {}\n'.format(token_f1)) 
+
+  if visualize:
+    fig, ax = plt.subplots(size=(20, 30))
+    best_classes = np.argmax(token_confusion, axis=1)
+    ax.set_yticks(np.arange(n_phones)+0.5, minor=False)
+    ax.set_yticklabels([phn for phn in sorted(phone2idx, key=lambda x:phone2idx[x])], minor=False)
+    ax.set_xticks(np.arange(n_class)+0.5, minor=False)
+    ax.set_xticklabels([str(c) for c in range(n_class)])
+    plt.pcolor(token_confusion[:, best_classes], cmap=plt.Blues, vmin=0, vmax=1)
+    plt.savefig('{}/{}.png'.format(args.exp_dir, out_file), dpi=100)
+    plt.close()
 
 def accuracy(pred, gold, max_len=2000):
   if DEBUG:
@@ -453,4 +466,4 @@ if __name__ == '__main__':
     for model_name in model_names:
       print(model_name)
       pred_file = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/discovered_words_{}.class'.format(model_name)     
-      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance)
+      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance, out_file='{}/{}'.format(args.exp_dir, model_name), visualize=True)
