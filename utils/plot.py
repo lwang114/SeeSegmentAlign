@@ -7,16 +7,25 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve 
 from collections import defaultdict
 from scipy.special import logsumexp
+from copy import deepcopy
 import argparse
 import pandas as pd
 import seaborn as sns; sns.set()
-
+from shutil import copyfile 
+import pkg_resources 
+from WDE.readers.gold_reader import *
+from WDE.readers.disc_reader import *
+from WDE.measures.grouping import * 
+from WDE.measures.coverage import *
+from WDE.measures.boundary import *
+from WDE.measures.ned import *
+from WDE.measures.token_type import *
 try:
-  from postprocess import _findPhraseFromPhoneme 
-  from clusteval import _findWords, boundary_retrieval_metrics  
+  from postprocess import * 
+  from clusteval import *  
 except:
-  from utils.postprocess import _findPhraseFromPhoneme 
-  from utils.clusteval import _findWords, boundary_retrieval_metrics
+  from utils.postprocess import * 
+  from utils.clusteval import * 
 
 NULL = 'NULL'
 END = '</s>'
@@ -415,7 +424,7 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
     if len(pred_c) == 0:
       print('Concept not found')
       continue
-    _, _, f1_scores[i_c] = boundary_retrieval_metrics(pred_c, gold_c, return_results=True, print_results=False)
+    _, _, f1_scores[i_c] = alignment_retrieval_metrics(pred_c, gold_c, return_results=True, print_results=False)
  
   concept_order = np.argsort(-f1_scores)
   print(out_file)
@@ -601,60 +610,131 @@ def plot_posterior_gap_curve(exp_dir):
   plt.savefig(exp_dir+'avg_posterior_gap')
   plt.close()
 
-# TODO
-'''
-def plot_F1_vs_EM_iteration(exp_dir):
+def plot_BF1_vs_EM_iteration(exp_dir, dataset, 
+                            data_path = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/',
+                            tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/',
+                            out_dir = None, 
+                            hierarchical=True,
+                            level='word',
+                            model_name = None):
+  phone_corpus = '{}/{}/{}_phone_captions.txt'.format(data_path, dataset, dataset)
+  phone2idx_file = '{}/mscoco_phone2id.json'.format(data_path)
+  # Convert the alignment files to .class files
+  for data_file in os.listdir(exp_dir):
+    if data_file.split('.')[-1] == 'json':
+      if not model_name:
+        model_name = data_file.split('.')[0]
+      n_iter = int(data_file.split('.')[0].split('_')[-1])
+      disc_clsfile = '{}/discovered_words_{}_{}.class'.format(exp_dir, model_name, n_iter)
+      if level == 'word':
+        alignment_to_word_classes('{}/{}'.format(exp_dir, data_file), phone_corpus, disc_clsfile, hierarchical=hierarchical) 
+      elif level == 'phone':
+        alignment_to_word_classes('{}/{}'.format(exp_dir, data_file), phone_corpus, disc_clsfile, hierarchical=hierarchical, landmark_file='{}/landmarks_dict.npz'.format(exp_dir)) 
+      
+  # Compute boundary F1 scores
+  os.system('cd {} && python setup.py build && python setup.py install'.format(tde_dir))
+  wrd_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('WDE'),
+                            'WDE/share/{}_word_units.wrd'.format(dataset))
+  phn_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('WDE'),
+                            'WDE/share/{}_phone_units.phn'.format(dataset))
+  gold = Gold(wrd_path=wrd_path,
+              phn_path=phn_path)
+  
   f1_data = {'Number of Iterations':[],\
-             'Average Log Likelihood':[],\
+             'Boundary F1':[],\
              'Model Name':[]}
-  for datafile in os.listdir(exp_dir):
-    if datafile.split('.')[0].split('_')[-1] != 'likelihoods':
-      continue
+  for data_file in os.listdir(exp_dir):
+    if data_file.split('.')[-1] == 'json':
+      if not model_name:
+        model_name = data_file.split('.')[0]
+      n_iter = int(data_file.split('.')[0].split('_')[-1])
+      disc_clsfile = '{}/discovered_words_{}_{}.class'.format(exp_dir, model_name, n_iter)
+      print(disc_clsfile)
+      
+      if level == 'word':
+        try:
+          discovered = Disc(disc_clsfile, gold)
+        except:
+          os.system('cd {} && python setup.py build && python setup.py install'.format(tde_dir))
+          discovered = Disc(disc_clsfile, gold)
     
-    likelihoods = np.load(exp_dir + datafile)
-    likelihoods = likelihoods[:20] # XXX
-    model_name = datafile.split('.')[0].split('_')[0]
-
-    if len(datafile.split('.')[0].split('_')) == 2:
-      print(model_name)
-      if model_name == 'phone' or model_name == 'image':
-        likelihood_data['Model Name'] += ['HMM'] * len(likelihoods)
-      elif model_name == 'cascade':
-        likelihood_data['Model Name'] += ['Cascade HMM-CRP'] * len(likelihoods)
-      elif model_name == 'end-to-end':
-        likelihood_data['Model Name'] += ['End-to-End HMM-CRP'] * len(likelihoods) 
+        boundary = Boundary(gold, discovered)
+        boundary.compute_boundary()
+        f1_data['Boundary F1'].append(2 * np.maximum(boundary.precision, EPS) * np.maximum(boundary.recall, EPS) / np.maximum(boundary.precision + boundary.recall, EPS)) 
+      elif level == 'phone':
+        gold_file = '{}/mscoco2k_phone_units.phn'.format(exp_dir)
+        f1_data['Boundary F1'].append(term_discovery_retrieval_metrics(disc_clsfile, gold_file, phone2idx_file, tol=3, visualize=False, out_file=None)[0])
+      if 'hmbesgmm' in model_name or 'hierarchical_mbes_gmm' in model_name:
+        if 'ctc' in exp_dir:
+          f1_data['Model Name'].append('HMBES-GMM + CTC')
+        elif 'mfcc' in exp_dir:
+          f1_data['Model Name'].append('HMBES-GMM + MFCC')
+        elif 'transformer' in exp_dir:
+          f1_data['Model Name'].append('HMES-GMM + Transformer')
+      elif 'mbesgmm' in model_name:
+        if 'ctc' in exp_dir:
+          f1_data['Model Name'].append('MBES-GMM + CTC')
+        elif 'mfcc' in exp_dir:
+          f1_data['Model Name'].append('MBES-GMM + MFCC')
+        elif 'transformer' in exp_dir:
+          f1_data['Model Name'].append('MBES-GMM + Transformer')
+      elif 'image' in model_name or 'audio' in model_name:
+        if 'ctc' in exp_dir:
+          f1_data['Model Name'].append('DNN-HMM-DNN + CTC')
+        elif 'mfcc' in exp_dir:
+          f1_data['Model Name'].append('DNN-HMM-DNN + MFCC')
+        elif 'transformer' in exp_dir:
+          f1_data['Model Name'].append('DNN-HMM-DNN + Transformer')
       else:
-        likelihood_data['Model Name'] += [model_name] * len(likelihoods)
-    else:
-      if datafile.split('.')[0].split('_')[1][:5] == 'alpha':
-        digits = datafile.split('.')[0].split('_')[1][5:]
-        nd = 0
-        for d in digits:
-          if int(d) == 0:
-            nd += 1
-          else:
-            break
-        model_name = '\\alpha={}'.format(float(digits) / 10**(nd))
-        likelihood_data['Model Name'] += [model_name] * len(likelihoods)
-        
-    likelihood_data['Number of Iterations'] += list(range(len(likelihoods)))
-    likelihood_data['Average Log Likelihood'] += likelihoods.tolist()
+        f1_data['Model Name'].append(model_name)
+      f1_data['Number of Iterations'].append(n_iter) 
 
-  print(len(likelihood_data['Number of Iterations']), len(likelihood_data['Average Log Likelihood']), len(likelihood_data['Model Name']))
-  likelihood_df = pd.DataFrame(likelihood_data)
-  ax = sns.lineplot(x='Number of Iterations', y='Average Log Likelihood', hue='Model Name', data=likelihood_df)
+  # Create the BF1 vs iteration plot
+  f1_df = pd.DataFrame(f1_data)
+  sns.set_style('whitegrid')
+  ax = sns.lineplot(x='Number of Iterations', y='Boundary F1', data=f1_df)
   plt.show()
-  plt.savefig(exp_dir+'avg_log_likelihood')
-  plt.close() 
-'''
+  plt.close()
+  if out_dir:
+    plt.savefig('{}/{}_f1_vs_iteration.png'.format(out_dir, model_name))
+    f1_df.to_csv('{}/{}_f1_vs_iteration.csv'.format(out_dir, model_name))
+  else:
+    plt.savefig('{}/{}_f1_vs_iteration.png'.format(exp_dir, model_name))
+    f1_df.to_csv('{}/{}_f1_vs_iteration.csv'.format(exp_dir, model_name))
 
-if __name__ == '__main__': 
-  tasks = [4]
+def plot_multiple_BF1_vs_EM_iteration(exp_dir, dataset, hierarchical=True, level='word'):
+  dfs = []
+  with open('{}/model_dirs.txt'.format(exp_dir), 'r') as f:
+    model_dirs = f.read().strip().split()
+  with open('{}/model_names.txt'.format(exp_dir), 'r') as f:
+    model_names = f.read().strip().split()
+
+  for model_dir, model_name in zip(model_dirs, model_names):
+    copyfile('{}/mscoco2k_phone_units.phn'.format(exp_dir), '{}/mscoco2k_phone_units.phn'.format(model_dir))
+    plot_BF1_vs_EM_iteration(model_dir, dataset, out_dir=exp_dir, hierarchical=hierarchical, model_name=model_name, level=level)
+
+  for data_file in os.listdir(exp_dir):
+    if data_file.split('.')[-1] == 'csv':
+      cur_df = pd.read_csv('{}/{}'.format(exp_dir, data_file))
+      dfs.append(cur_df)
+  df = pd.concat(dfs)
+
+  sns.set_style('whitegrid')
+  ax = sns.lineplot(x='Number of Iterations', y='Boundary F1', hue='Model Name', data=df)
+  plt.legend(loc='best') 
+  plt.savefig('{}/f1_vs_iteration'.format(exp_dir))
+
+if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
   parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
   parser.add_argument('--nfolds', '-nf', type=int, default=1)
+  parser.add_argument('--task', '-t', type=int, help='Task index')
+  parser.add_argument('--level', '-l', choices=['word', 'phone'], default='word', help='Level of acoustic unit')
   args = parser.parse_args()
+  tasks = [args.task]
 
   if args.dataset == 'flickr':
     gold_json = '../data/flickr30k/phoneme_level/flickr30k_gold_alignment.json'
@@ -731,8 +811,7 @@ if __name__ == '__main__':
   #--------------------#
   # F1-score Histogram #
   #--------------------#
-  if 2 in tasks:
-    
+  if 2 in tasks: 
     width = 0.08
     draw_plot = False
     colors = 'rcgb'
@@ -742,8 +821,8 @@ if __name__ == '__main__':
     model_names_display = []
     for model_name in model_names:
       # XXX 
-      # pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
-      pred_json = '%s%s_split_0_alignment.json' % (args.exp_dir, model_name) 
+      pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
+      # pred_json = '%s%s_split_0_alignment.json' % (args.exp_dir, model_name) 
       print(pred_json)
        
       if model_name.split()[0] == 'gaussian':
@@ -811,3 +890,13 @@ if __name__ == '__main__':
   #-------------------------------------------------#
   if 5 in tasks:
     plot_crp_counts(args.exp_dir, phone_corpus, gold_json, draw_plot=False, out_file=None)
+  #----------------------------------------#
+  # Boundary F1 vs Number of EM iterations #
+  #----------------------------------------#
+  if 6 in tasks:
+    plot_BF1_vs_EM_iteration(exp_dir=args.exp_dir, dataset='mscoco2k', hierarchical=True, level=args.level)
+  #-------------------------------------------------------#
+  # Multiple Boundary F1 vs Number of EM iterations Plots #
+  #-------------------------------------------------------#
+  if 7 in tasks:
+    plot_multiple_BF1_vs_EM_iteration(exp_dir=args.exp_dir, dataset='mscoco2k', hierarchical=True, level=args.level)

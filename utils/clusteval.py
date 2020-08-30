@@ -1,7 +1,5 @@
 import numpy as np
 import json
-from nltk.metrics import recall, precision, f_measure
-from nltk.metrics.distance import edit_distance
 from sklearn.metrics import roc_curve 
 import logging
 import matplotlib
@@ -195,9 +193,11 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
     if phone2idx_file:
       with open(phone2idx_file, 'r') as f_i:
         phone2idx = json.load(f_i)
+        phones = [phn for phn in sorted(phone2idx, key=lambda x:phone2idx[x])]
         n_phones = len(phone2idx) 
     else:
       phone2idx = {}
+      phones = []
       n_phones = 0
 
     i = 0
@@ -207,9 +207,14 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
       # i += 1
       example_id, start, end, phn = line.split()
       if not phn in phone2idx:
-        phone2idx[phn] = n_phones
-        n_phones += 1
-        class_idx = n_phones
+        if phone2idx_file:
+          class_idx = int(phn)
+          phn = phones[int(phn)]
+        else:
+          phone2idx[phn] = n_phones
+          phones.append(phn)
+          n_phones += 1
+          class_idx = n_phones
       else:
         class_idx = phone2idx[phn]
       start, end = float(start), float(end)        
@@ -270,24 +275,42 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
     token_f1 = 0.
   else:
     token_f1 = 2. / (1. / token_rec + 1. / token_prec)
-  
-  with open('{}.txt'.format(outfile), 'r') as f:
-    f.write('Boundary recall: {}\n'.format(boundary_rec))
-    f.write('Boundary precision: {}\n'.format(boundary_prec))
-    f.write('Boundary f1: {}\n'.format(boundary_f1))
-    f.write('Token recall: {}\n'.format(token_rec))
-    f.write('Token precision: {}\n'.format(token_prec))
-    f.write('Token f1: {}\n'.format(token_f1)) 
+ 
+  if out_file: 
+    with open('{}.txt'.format(out_file), 'w') as f:
+      f.write('Boundary recall: {}\n'.format(boundary_rec))
+      f.write('Boundary precision: {}\n'.format(boundary_prec))
+      f.write('Boundary f1: {}\n'.format(boundary_f1))
+      f.write('Token recall: {}\n'.format(token_rec))
+      f.write('Token precision: {}\n'.format(token_prec))
+      f.write('Token f1: {}\n'.format(token_f1)) 
+  else:
+    return boundary_f1, token_f1
 
   if visualize:
-    fig, ax = plt.subplots(size=(20, 30))
+    fig, ax = plt.subplots(figsize=(25, 25))
+    token_confusion /= np.maximum(np.sum(token_confusion, axis=1, keepdims=True), 1.)
     best_classes = np.argmax(token_confusion, axis=1)
+    print(len(best_classes))
+
     ax.set_yticks(np.arange(n_phones)+0.5, minor=False)
+    ax.invert_yaxis()
     ax.set_yticklabels([phn for phn in sorted(phone2idx, key=lambda x:phone2idx[x])], minor=False)
-    ax.set_xticks(np.arange(n_class)+0.5, minor=False)
-    ax.set_xticklabels([str(c) for c in range(n_class)])
-    plt.pcolor(token_confusion[:, best_classes], cmap=plt.Blues, vmin=0, vmax=1)
-    plt.savefig('{}/{}.png'.format(args.exp_dir, out_file), dpi=100)
+    for tick in ax.get_yticklabels():
+      tick.set_fontsize(25)
+
+    ax.set_xticks(np.arange(n_phones)+0.5, minor=False)
+    ax.set_xticklabels([str(c) for c in best_classes])
+    for tick in ax.get_xticklabels():
+      tick.set_fontsize(25)
+      tick.set_rotation(90)
+    
+    plt.pcolor(token_confusion[:, best_classes], cmap=plt.cm.Greys, vmin=0, vmax=1)
+    cbar = plt.colorbar()
+    for tick in cbar.ax.get_yticklabels():
+      tick.set_fontsize(50)
+
+    plt.savefig('{}.png'.format(out_file), dpi=100)
     plt.close()
 
 def accuracy(pred, gold, max_len=2000):
@@ -446,24 +469,26 @@ if __name__ == '__main__':
   #------------------------#
   # Term Discovery Metrics #
   #------------------------#
-  if 2 in tasks: # TODO
+  if 2 in tasks:
     # Try using gold landmarks to generate pred_file and evaluate it using gold_file
-    landmark_file = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_landmarks_dict.npz' 
+    landmark_file = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_subphone_landmarks_dict.npz' 
     landmark_dict = np.load(landmark_file)
-    gold_file = args.exp_dir + 'mscoco2k_phone_units.phn'
-    phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
+    gold_file = '{}/{}'.format(args.exp_dir, 'mscoco2k_word_units.wrd') # '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/mscoco2k_phone_units.phn'
+    phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx_65class.json' # '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
 
-    with open(args.exp_dir+'model_names.txt', 'r') as f:
+    with open('{}/{}'.format(args.exp_dir, 'model_names.txt'), 'r') as f:
       model_names = f.read().strip().split()
 
     '''
+    pred_file = args.exp_dir + 'preseg.class'
     with open(pred_file, 'w') as f:
       f.write('Class 0\n')
       for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
         for start, end in zip(landmark_dict[example_id][:-1], landmark_dict[example_id][1:]):
           f.write('{} {} {}\n'.format(example_id, start, end))
     '''
+
     for model_name in model_names:
       print(model_name)
-      pred_file = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/discovered_words_{}.class'.format(model_name)     
-      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance, out_file='{}/{}'.format(args.exp_dir, model_name), visualize=True)
+      pred_file = '{}/discovered_words_{}.class'.format(args.exp_dir, model_name) # '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/discovered_words_{}.class'.format(model_name)     
+      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance, out_file='{}/{}'.format(args.exp_dir, model_name), visualize=True) 
