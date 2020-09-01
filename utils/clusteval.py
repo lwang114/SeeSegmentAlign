@@ -113,12 +113,12 @@ def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt
   prec = 0.
   rec = 0.
 
+  v = max([max(g['alignment']) for g in gold]) + 1
+  confusion = np.zeros((v, v))
   # Local retrieval metrics
   for n_ex, (p, g) in enumerate(zip(pred, gold)):
     p_ali = p['alignment'][:max_len]
     g_ali = g['alignment'][:max_len]
-    v = max(max(set(g_ali)), max(set(p_ali))) + 1
-    confusion = np.zeros((v, v))
    
     # if debug:
     #   print("examples " + str(n_ex)) 
@@ -127,22 +127,12 @@ def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt
     
     for a_p, a_g in zip(p_ali, g_ali):
       confusion[a_g, a_p] += 1.
-  
-    for i in range(v):
-      if confusion[i][i] == 0.:
-        continue
-      rec += 1. / v * confusion[i][i] / np.sum(confusion[i])   
-      prec += 1. / v * confusion[i][i] / np.sum(confusion[:, i])
-       
-  recall = rec / n
-  precision = prec / n
-  f_measure = 2. / (1. / recall + 1. / precision)
-  if print_results:
-    print('Local alignment recall: ' + str(recall))
-    print('Local alignment precision: ' + str(precision))
-    print('Local alignment f_measure: ' + str(f_measure))
+  print(confusion)
+  f1 = v / np.sum(1. / np.maximum(np.diag(confusion) / np.maximum(np.sum(confusion, axis=1), 1), EPS))
+  if print_results: 
+    print('Alignment F1: ' + str(f1))
   if return_results:
-    return recall, precision, f_measure
+    return confusion
 
 def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, tol=3, visualize=False, out_file='scores'):
   # Calculate boundary F1 and token F1 scores from text files
@@ -250,7 +240,7 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
 
     for gold_start, gold_end, gold_unit in zip(cur_gold_boundaries[:-1], cur_gold_boundaries[1:], cur_gold_units):      
       for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
-        if abs(pred_end - gold_end) <= 3:
+        if abs(pred_end - gold_end) <= tol:
           n_correct_segments += 1
           break
 
@@ -285,6 +275,8 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
       f.write('Token precision: {}\n'.format(token_prec))
       f.write('Token f1: {}\n'.format(token_f1)) 
   else:
+    print('Boundary f1: {}\n'.format(boundary_f1))
+    print('Token f1: {}\n'.format(token_f1))
     return boundary_f1, token_f1
 
   if visualize:

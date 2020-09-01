@@ -156,8 +156,7 @@ def alignment_to_word_classes(alignment_file, phone_corpus,
                                    landmark_file=None, 
                                    hierarchical = False,
                                    include_null = False,
-                                   has_phone_alignment = False):
-  # TODO Add tolerance
+                                   has_phone_alignment = False): # TODO Make phone_corpus optional
   f = open(phone_corpus, 'r')
   a_corpus = []
   for line in f: 
@@ -407,6 +406,7 @@ def segmentation_to_phone_classes(segmentation_file,
                                  phone_corpus_file = None,
                                  landmark_file = None,
                                  split_file = None,
+                                 hierarchical = False,
                                  include_null = False):
   phone_units = {}
   if split_file:  
@@ -452,15 +452,38 @@ def segmentation_to_phone_classes(segmentation_file,
       if ex > 199: # XXX
         continue
       pair_id = 'arr_' + str(ex)
+      if landmark_file:
+        cur_lms = lms[pair_id]
       word_labels = datum_info['image_concepts']
       segmentation = datum_info['segmentation']
+     
       for word_label, start, end in zip(word_labels, segmentation[:-1], segmentation[1:]):
-        for i_phn, phone_label in enumerate(word_label.split(',')): 
+        if hierarchical:
+          for i_phn, phone_label in enumerate(word_label.split(',')): 
+            if not phone_label in phone_units:
+              if landmark_file:
+                phone_units[phone_label] = ['%s %d %d\n' % (pair_id, cur_lms[start+i_phn], cur_lms[start+i_phn+1])]
+              else:
+                phone_units[phone_label] = ['%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1)]
+            else:
+              if landmark_file:
+                phone_units[phone_label].append('%s %d %d\n' % (pair_id, cur_lms[start+i_phn], cur_lms[start+i_phn+1]))
+              else:
+                phone_units[phone_label].append('%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1))
+        else:
+          phone_label = word_label
           if not phone_label in phone_units:
-            phone_units[phone_label] = ['%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1)]
+            if landmark_file:        
+              phone_units[phone_label] = ['%s %d %d\n' % (pair_id, cur_lms[start], cur_lms[end])]
+            else:
+              phone_units[phone_label] = ['%s %d %d\n' % (pair_id, start, end)]
           else:
-            phone_units[phone_label].append('%s %d %d\n' % (pair_id, start+i_phn, start+i_phn+1))
+            if landmark_file:        
+              phone_units[phone_label].append('%s %d %d\n' % (pair_id, cur_lms[start], cur_lms[end]))
+            else:
+              phone_units[phone_label].append('%s %d %d\n' % (pair_id, start, end))
 
+ 
   with open(phone_class_file, 'w') as f:
     for i_c, c in enumerate(phone_units):
       #print(i_c, c)

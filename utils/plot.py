@@ -30,6 +30,7 @@ except:
 NULL = 'NULL'
 END = '</s>'
 DEBUG = False
+EPS = 1e-17
 def plot_class_distribution(labels, class_names, cutoff=100, filename=None, normalize=False, draw_plot=True):
   assert type(labels) == list
   n_c = max(labels)
@@ -382,37 +383,32 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
 
   concept_names = [c for c in concept2idx.keys()]
   n_c = len(concept_names)
-
   # For each concept, compute a concept F1 score by converting the alignment to a binary vector
   f1_scores = np.zeros((n_c,))
-  count_concepts = np.zeros((n_c,))
   # XXX
   for i_c, c in enumerate(concept_names):
+    print(c)
     pred_c = []
     gold_c = []
     
     for p, g in zip(pred, gold):
-      concepts = g['image_concepts']
-      concepts = [str(concept) for concept in concepts]
-      # Skip if the concept is not in the current image-caption pair
-      if str(c) not in concepts:
-        continue
-      
-      count_concepts[i_c] += 1  
+      cur_concepts = [concept_names[j_c] for j_c in g['image_concepts']] 
       p_ali = p['alignment']
       g_ali = g['alignment'] 
       p_ali_c = []
       g_ali_c = [] 
       for a_p, a_g in zip(p_ali, g_ali):
-        '''if DEBUG:
-          print("a_p, a_g, p_prob.shape: ", a_p, a_g, np.asarray(p_prob).shape)
-        '''
-        if concepts[a_g] == c:
+        if cur_concepts[a_g] == c:
+          # print('Gold matches {}'.format(c))
           g_ali_c.append(1)
         else:
           g_ali_c.append(0)
         
-        if concepts[a_p] == c:
+        if a_p > len(cur_concepts) - 1:
+          print('Warning: alignment index exceeds the number of concepts')
+          continue
+        if cur_concepts[a_p] == c:
+          # print('Pred matches {}'.format(c))
           p_ali_c.append(1)
         else:
           p_ali_c.append(0)
@@ -424,15 +420,16 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
     if len(pred_c) == 0:
       print('Concept not found')
       continue
-    _, _, f1_scores[i_c] = alignment_retrieval_metrics(pred_c, gold_c, return_results=True, print_results=False)
- 
+    cm = alignment_retrieval_metrics(pred_c, gold_c, return_results=True, print_results=True)
+    recall = cm[1, 1] / np.sum(cm[1])
+    precision = cm[1, 1] / np.sum(cm[:, 1])
+    f1_scores[i_c] = 2. / (1. / np.maximum(recall, EPS) + 1. / np.maximum(precision, EPS))
+
   concept_order = np.argsort(-f1_scores)
   print(out_file)
   print('Top.10 discovered concepts:')
   n_top = 0
   for c in concept_order.tolist():
-    if count_concepts[c] < 10:
-      continue
     n_top += 1
     print(concept_names[c], f1_scores[c])
     if n_top >= 10:
@@ -441,8 +438,6 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
   print('Top.10 difficult concepts:')
   n_top = 0
   for c in concept_order.tolist()[::-1]:
-    if count_concepts[c] < 10:
-      continue
     n_top += 1
     print(concept_names[c], f1_scores[c])
     if n_top >= 10:
@@ -629,7 +624,7 @@ def plot_BF1_vs_EM_iteration(exp_dir, dataset,
       if level == 'word':
         alignment_to_word_classes('{}/{}'.format(exp_dir, data_file), phone_corpus, disc_clsfile, hierarchical=hierarchical) 
       elif level == 'phone':
-        alignment_to_word_classes('{}/{}'.format(exp_dir, data_file), phone_corpus, disc_clsfile, hierarchical=hierarchical, landmark_file='{}/landmarks_dict.npz'.format(exp_dir)) 
+        segmentation_to_phone_classes('{}/{}'.format(exp_dir, data_file), phone_class_file=disc_clsfile, landmark_file='{}/landmarks_dict.npz'.format(exp_dir), include_null=True) 
       
   # Compute boundary F1 scores
   os.system('cd {} && python setup.py build && python setup.py install'.format(tde_dir))
@@ -665,14 +660,14 @@ def plot_BF1_vs_EM_iteration(exp_dir, dataset,
         f1_data['Boundary F1'].append(2 * np.maximum(boundary.precision, EPS) * np.maximum(boundary.recall, EPS) / np.maximum(boundary.precision + boundary.recall, EPS)) 
       elif level == 'phone':
         gold_file = '{}/mscoco2k_phone_units.phn'.format(exp_dir)
-        f1_data['Boundary F1'].append(term_discovery_retrieval_metrics(disc_clsfile, gold_file, phone2idx_file, tol=3, visualize=False, out_file=None)[0])
+        f1_data['Boundary F1'].append(term_discovery_retrieval_metrics(disc_clsfile, gold_file, phone2idx_file, tol=0, visualize=False, out_file=None)[0])
       if 'hmbesgmm' in model_name or 'hierarchical_mbes_gmm' in model_name:
         if 'ctc' in exp_dir:
           f1_data['Model Name'].append('HMBES-GMM + CTC')
         elif 'mfcc' in exp_dir:
           f1_data['Model Name'].append('HMBES-GMM + MFCC')
         elif 'transformer' in exp_dir:
-          f1_data['Model Name'].append('HMES-GMM + Transformer')
+          f1_data['Model Name'].append('HMBES-GMM + Transformer')
       elif 'mbesgmm' in model_name:
         if 'ctc' in exp_dir:
           f1_data['Model Name'].append('MBES-GMM + CTC')
@@ -726,10 +721,91 @@ def plot_multiple_BF1_vs_EM_iteration(exp_dir, dataset, hierarchical=True, level
   plt.legend(loc='best') 
   plt.savefig('{}/f1_vs_iteration'.format(exp_dir))
 
+def plot_F1_vs_frequency(pred_file, gold_file, concept2count_file, concept2idx_file, nbins=10): # TODO
+  dfs = []
+  # Sort the concepts from lowest to highest frequency, and divide into n bins
+  with open(concept2count_file, 'r') as f:
+    concept2count = json.load(f)
+    frequencies_sorted = sorted(concept2count.values())
+    n_concept_per_bin = int(len(concept2count) / nbins)
+    thresholds = frequencies_sorted[::n_concept_per_bin]
+    nbins = len(thresholds)
+
+  with open(concept2idx_file, 'r') as f:
+    concept2idx = json.load(f)
+    concept_names = sorted(concept2idx, key=lambda x:concept2idx[x])
+
+  # Load the predicted alignment, gold alignment and concept dictionary 
+  with open(pred_file, 'r') as f:
+    pred = json.load(f)
+     
+  with open(gold_file, 'r') as f:
+    gold = json.load(f)
+
+  n_c = len(concept_names)
+  # For each concept, compute a concept F1 score by converting the alignment to a binary vector
+  f1_scores = np.zeros((n_c,))
+  # XXX
+  for i_c, c in enumerate(concept_names):
+    print(c)
+    pred_c = []
+    gold_c = []
+    
+    for p, g in zip(pred, gold):
+      cur_concepts = [concept_names[j_c] for j_c in g['image_concepts']] 
+      p_ali = p['alignment']
+      g_ali = g['alignment'] 
+      p_ali_c = []
+      g_ali_c = [] 
+      print(p_ali, g_ali)
+      for a_p, a_g in zip(p_ali, g_ali):
+        if cur_concepts[a_g] == c:
+          # print('Gold matches {}'.format(c))
+          g_ali_c.append(1)
+        else:
+          g_ali_c.append(0)
+        
+        if cur_concepts[a_p] == c:
+          # print('Pred matches {}'.format(c))
+          p_ali_c.append(1)
+        else:
+          p_ali_c.append(0)
+      
+      pred_c.append({'alignment': p_ali_c})
+      gold_c.append({'alignment': g_ali_c})
+      
+    # XXX
+    if len(pred_c) == 0:
+      print('Concept not found')
+      continue
+    cm = alignment_retrieval_metrics(pred_c, gold_c, return_results=True, print_results=True)
+    recall = cm[1, 1] / np.sum(cm[1])
+    precision = cm[1, 1] / np.sum(cm[0])
+    f1_scores[i_c] = 2. / (1. / np.maximum(recall, EPS) + 1. / np.maximum(precision, EPS))
+
+  # Compute the F1 histogram
+  f1_vs_frequency = {'F1': np.zeros((nbins,)), 'Frequency Range':['>{}'.format(thresholds[i_b]) if i_b == nbins - 1 else '[{},{})'.format(thresholds[i_b], thresholds[i_b+1]) for i_b in range(nbins)]}
+  bin_counts = np.zeros((nbins,))
+  for c in concept_names:
+    for i_bin in range(nbins):
+      if concept2count[c] <= thresholds[i_bin]:
+        break
+    f1_vs_frequency['F1'][i_bin] += f1_scores[i_c]
+    bin_counts[i_bin] += 1
+  f1_vs_frequency['F1'] /= np.maximum(bin_counts, 1) 
+  
+  # Plot bar plot of the average F1 score of concepts in different bins vs bin frequency range
+  f1_df = pd.DataFrame(f1_vs_frequency)
+  f1_df.to_csv('f1_vs_frequency.csv')
+  ax = sns.barplot(x='Frequency Range', y='F1', data=f1_df)
+  plt.savefig('{}_f1_vs_frequency'.format(pred_file.split('.')[0]))
+  plt.show()
+  plt.close()
+
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
-  parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
+  parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k', 'mscoco_imbalanced'], help='Dataset')
   parser.add_argument('--nfolds', '-nf', type=int, default=1)
   parser.add_argument('--task', '-t', type=int, help='Task index')
   parser.add_argument('--level', '-l', choices=['word', 'phone'], default='word', help='Level of acoustic unit')
@@ -743,12 +819,18 @@ if __name__ == '__main__':
     gold_json = '../data/flickr30k/audio_level/flickr30k_gold_alignment.json'
     concept2idx_file = '../data/flickr30k/concept2idx.json'
   elif args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
-    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/'
     gold_json = datapath + '%s_gold_alignment.json' % args.dataset
     phone_corpus = datapath + 'mscoco2k_phone_captions.txt'
     with open('../data/concept2idx_integer.json', 'w') as f:
       json.dump({i:i for i in range(65)}, f, indent=4, sort_keys=True)
     concept2idx_file = '../data/concept2idx_integer.json'
+  elif args.dataset == 'mscoco_imbalanced':
+    datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco'
+    gold_json = '{}/mscoco_synthetic_imbalanced/{}_gold_alignment.json'.format(datapath, args.dataset)
+    phone_corpus = '{}/mscoco_synthetic_imbalanced/{}_phone_captions.txt'.format(datapath, args.dataset)
+    concept2idx_file = '{}/concept2idx_65class.json'.format(datapath)
+    concept2count_file = '{}/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_counts_power_law_1.json'.format(datapath)
   else:
     raise ValueError('Dataset not specified or not valid')
 
@@ -821,7 +903,7 @@ if __name__ == '__main__':
     model_names_display = []
     for model_name in model_names:
       # XXX 
-      pred_json = '%s_%s_pred_alignment.json' % (args.exp_dir + args.dataset, model_name) 
+      pred_json = '%s/%s_alignment.json' % (args.exp_dir, model_name) 
       # pred_json = '%s%s_split_0_alignment.json' % (args.exp_dir, model_name) 
       print(pred_json)
        
@@ -842,7 +924,13 @@ if __name__ == '__main__':
         model_name = 'KMeans'
       elif model_name.split()[0] == 'gmm':
         model_name = 'GMM'
-     
+      elif 'hmbesgmm' in model_name:
+        model_name = 'HMBES-GMM'
+      elif 'besgmm' in model_name:
+        model_name = 'BES-GMM'
+      elif 'dnnhmmdnn' in model_name:
+        model_name = 'DNN-HMM-DNN'
+
       model_names_display.append(model_name)
       feat_name = pred_json.split('_')[-2]
       if len(model_name.split('_')) > 1 and model_name.split('_')[1] == 'vgg16':
@@ -900,3 +988,10 @@ if __name__ == '__main__':
   #-------------------------------------------------------#
   if 7 in tasks:
     plot_multiple_BF1_vs_EM_iteration(exp_dir=args.exp_dir, dataset='mscoco2k', hierarchical=True, level=args.level)
+  #-----------------------------------#
+  # Alignment F1 vs Concept Frequency #
+  #-----------------------------------#
+  if 8 in tasks:
+    for model_name in model_names:
+      pred_file = '{}/{}_alignment.json'.format(args.exp_dir, model_name)
+      plot_F1_vs_frequency(pred_file, gold_json, concept2count_file, concept2idx_file)

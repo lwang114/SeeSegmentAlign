@@ -24,6 +24,8 @@ parser.add_argument('--level', '-l', choices=['phone', 'word'], default='word', 
 parser.add_argument('--check_consistency', action='store_true', help='Check to make sure the predicted and gold landmarks are compatible')
 parser.add_argument('--tolerance', '-t', type=float, default=3, help='Tolerance for boundary F1')
 args = parser.parse_args()
+with open('{}/args.txt'.format(args.exp_dir), 'w') as f:
+  f.write(str(args))
 
 if args.level == 'word':
   tasks = [0, 1]
@@ -35,18 +37,18 @@ with open(args.exp_dir+'model_names.txt', 'r') as f:
   model_names = f.read().strip().split()
 
 if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
-  datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
-  phone_corpus = datapath + '%s_phone_captions.txt' % args.dataset
+  datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/%s/' % args.dataset
   concept_corpus = datapath + '%s_image_captions.txt' % args.dataset
-  concept2id_file = datapath + 'concept2idx.json'
+  concept2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx_65class.json'  
+  phone_corpus = datapath + '%s_phone_captions.txt' % args.dataset
   gold_alignment_file = datapath + '%s_gold_alignment.json' % args.dataset
   landmark_file = datapath + '%s_landmarks_dict.npz' % args.dataset 
   phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
 if args.dataset == 'mscoco_imbalanced':
-  datapath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+  datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/'
   phone_corpus = datapath + '%s_phone_captions.txt' % args.dataset
   concept_corpus = datapath + '%s_image_captions.txt' % args.dataset
-  concept2id_file = datapath + 'concept2idx.json'
+  concept2id_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx_65class.json'
   gold_alignment_file = datapath + '%s_gold_alignment.json' % args.dataset
   landmark_file = datapath + '%s_landmarks_dict.npz' % args.dataset
   phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
@@ -68,6 +70,7 @@ if 0 in tasks:
   if args.nfolds > 1:
     # XXX
     for k in range(args.nfolds):
+      print('Extracting .wrd and .phn file for fold {} ...'.format(k))
       pred_alignment_files = ['%s%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
 
       split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
@@ -75,24 +78,26 @@ if 0 in tasks:
         alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file, split_file=split_files[0])
       else:
         alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
-
+        print('Finish extracting .wrd and .phn file for fold {}'.format(k))
+        print('Extracting .class file for ...')
         for i, (model_name, pred_alignment_file, split_file) in enumerate(zip(model_names, pred_alignment_files, split_files)):
           print(model_name)
           discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s_split_%d.class' % (args.dataset, model_name, k)
           alignment_to_word_classes(pred_alignment_file, phone_corpus, split_file=split_file, word_class_file=discovered_word_file, include_null=True)
+        print('Finish extracting .class file for fold {}'.format(k))
   else:
     if args.convert_to_frame:
       alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file)
       alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file) 
     else:
-      print('Extracting word.class file')
       alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file) 
-
+    print('Finish extracting .wrd and .phn file')
+   
+    print('Extracting .class file ...')
     pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
   
     for i, (model_name, pred_alignment_file) in enumerate(zip(model_names, pred_alignment_files)):
-      has_phone_alignment = 'mbesgmm' in model_name.split('_') or 'besgmm' in model_name.split('_') 
-
+      has_phone_alignment = 'besgmm' in model_name 
       discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name)
 
       if args.result_type == 'alignment':
@@ -106,8 +111,10 @@ if 0 in tasks:
           alignment_to_word_classes(pred_alignment_file, phone_corpus, word_class_file=discovered_word_file, hierarchical=args.hierarchical, include_null=True, landmark_file=pred_landmark_file, has_phone_alignment=has_phone_alignment)  
         else:
           alignment_to_word_classes(pred_alignment_file, phone_corpus, word_class_file=discovered_word_file, hierarchical=args.hierarchical, include_null=True, has_phone_alignment=has_phone_alignment)
-      elif args.result_type == 'segment' and args.level == 'word':
-        segmentation_to_word_classes(pred_alignment_file, word_class_file=discovered_word_file, include_null=True)
+      elif args.result_type == 'segment':
+        if args.level == 'word':
+          segmentation_to_word_classes(pred_alignment_file, word_class_file=discovered_word_file, include_null=True)
+    print('Finish extracting .class file')
 
 #---------------------------#
 # Word Discovery Evaluation #
@@ -185,7 +192,6 @@ if 1 in tasks:
     phn_path = pkg_resources.resource_filename(
                 pkg_resources.Requirement.parse('WDE'),
                             'WDE/share/%s_phone_units.phn' % args.dataset)
-
     gold = Gold(wrd_path=wrd_path, 
                   phn_path=phn_path) 
     
@@ -195,7 +201,6 @@ if 1 in tasks:
     print(disc_clsfiles)
     for model_name, disc_clsfile in zip(model_names, disc_clsfiles):
       discovered = Disc(disc_clsfile, gold) 
-      
       print(model_name)
       grouping = Grouping(discovered)
       grouping.compute_grouping()
@@ -238,13 +243,12 @@ if 2 in tasks:
     model_names = f.read().strip().split()
   disc_clsfiles = ['%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
   gold_file = '%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset)
-
+  
+  # TODO Simplify this
   if args.nfolds > 1:
     for k in range(args.nfolds):
       pred_alignment_files = ['%s%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
       split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
-      if args.result_type == 'alignment':
-        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
   else:
     if args.result_type == 'segment':
       pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
@@ -254,7 +258,14 @@ if 2 in tasks:
         if args.convert_to_frame:
           pred_landmark_file = args.exp_dir + 'landmarks_dict.npz'
         segmentation_to_phone_classes(pred_alignment_file, phone_class_file=discovered_word_file, landmark_file=pred_landmark_file, include_null=True)
-
+    else:
+      for model_name, discovered_word_file in zip(model_names, disc_clsfiles):
+        if 'dnnhmmdnn' in model_name.split('_'):
+          pred_alignment_file = '{}{}_alignment.json'.format(args.exp_dir, model_name)
+          if args.convert_to_frame:
+            pred_landmark_file = args.exp_dir + 'landmarks_dict.npz'
+          segmentation_to_phone_classes(pred_alignment_file, phone_class_file=discovered_word_file, landmark_file=pred_landmark_file, include_null=True)
+ 
   if args.nfolds > 1:
     os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
     for model_name in model_names:
@@ -265,4 +276,4 @@ if 2 in tasks:
   else:   
     for model_name, pred_file in zip(model_names, disc_clsfiles):
       print('model name: ', model_name)
-      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance)
+      term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance, visualize=True, out_file='{}/{}'.format(args.exp_dir, model_name))
