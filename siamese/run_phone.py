@@ -55,16 +55,22 @@ parser.add_argument("--simtype", type=str, default="MISA",
 parser.add_argument('--losstype', choices=['triplet', 'mml'], default='triplet')
 parser.add_argument('--image_concept_file', type=str, default=None, help='Text file of image concepts in each image-caption pair')
 parser.add_argument('--nfolds', type=int, default=1, help='Number of folds for cross validation')
+parser.add_argument('--start_step', type=int, default=0, help='Starting step of the experiment')
 args = parser.parse_args()
 resume = args.resume
-tasks = [1, 2]
+tasks = list(range(args.start_step, 3))
 
 data_dir = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
 
 if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
+  phone2idx_file = data_dir + 'mscoco_phone2id.json' 
   data_dir = data_dir + 'mscoco2k/feats/' 
+  args.datasplit = '{}/{}_split_0.txt'.format(data_dir, args.dataset)
 elif args.dataset == 'mscoco_train':
   data_dir = data_dir
+  phone2idx_file = data_dir + 'mscoco_phone2id.json' 
+else:
+  phone2idx_file = data_dir + '%s_phone2idx' % args.dataset
 
 if args.losstype == 'triplet':
   args.optim = 'sgd'
@@ -79,10 +85,6 @@ phone_feat_file_test = data_dir + 'val2014/mscoco_val_phone_captions_1k.txt'
 image_feat_file = data_dir + '%s_res34_embed512dim' % args.dataset
 image_feat_file_train = data_dir + 'train2014/%s_res34_embed512dim.npz' % args.dataset
 image_feat_file_test = data_dir + 'val2014/mscoco_val_res34_embed512dim_1k.npz'
-if args.dataset == 'mscoco_train':
-  phone2idx_file = data_dir + 'mscoco_phone2id.json' 
-else:
-  phone2idx_file = data_dir + '%s_phone2idx' % args.dataset
   
 if args.resume:
     assert(bool(args.exp_dir))
@@ -92,10 +94,11 @@ args.resume = resume
 print(args)
 
 if 0 in tasks:
-  if True: # self.nfolds > 1: # TODO
+  if args.nfolds >= 1: # TODO
     with open(args.datasplit, 'r') as f_split:
       lines = f_split.read().strip().split('\n')
     test_indices = [i for i, line in enumerate(lines) if int(line)]
+    train_indices = [i for i in line in enumerate(lines) if not int(line)]
     random.shuffle(test_indices)
     # XXX
     if len(test_indices) > 1000:
@@ -106,29 +109,36 @@ if 0 in tasks:
           f.write('1\n')
         else:
           f.write('0\n')
+  else:
+    with open('{}.txt'.format(phone_feat_file), 'r') as f_phn:  
+      lines = f_phn.readlines()
+    test_indices = list(range(len(lines)))
+    train_indices = list(range(len(lines)))
+    print(len(test_indices), len(train_indices))
 
-    image_feat_npz = np.load(image_feat_file + '.npz')
-    # XXX
-    image_keys = sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))
-    image_feat_tr = {k: image_feat_npz[k] for k in image_keys if not int(k.split('_')[-1]) in test_indices}
-    image_feat_tx = {k: image_feat_npz[k] for k in image_keys if int(k.split('_')[-1]) in test_indices}
-    np.savez(image_feat_file + '_train.npz', **image_feat_tr)
-    np.savez(image_feat_file + '_test.npz', **image_feat_tx)
+  image_feat_npz = np.load(image_feat_file + '.npz')
+  # XXX
+  image_keys = sorted(image_feat_npz, key=lambda x:int(x.split('_')[-1]))
+  print(len(image_keys))
+  image_feat_tr = {k: image_feat_npz[k] for k in image_keys if int(k.split('_')[-1]) in train_indices}
+  image_feat_tx = {k: image_feat_npz[k] for k in image_keys if int(k.split('_')[-1]) in test_indices}
+  np.savez(image_feat_file + '_train.npz', **image_feat_tr)
+  np.savez(image_feat_file + '_test.npz', **image_feat_tx)
 
-    with open(phone_feat_file + '.txt', 'r') as f_phn,\
-         open(phone_feat_file + '_train.txt', 'w') as f_phn_tr,\
-         open(phone_feat_file + '_test.txt', 'w') as f_phn_tx:
-      i = 0
-      for line in f_phn:
-        # XXX
-        # if i > 499:
-        #   break
-        if not i in test_indices:
-          f_phn_tr.write(line)
-        else:
-          f_phn_tx.write(line) 
-        i += 1
-
+  with open(phone_feat_file + '.txt', 'r') as f_phn,\
+       open(phone_feat_file + '_train.txt', 'w') as f_phn_tr,\
+       open(phone_feat_file + '_test.txt', 'w') as f_phn_tx:
+    i = 0
+    for line in f_phn:
+      # XXX
+      # if i > 499:
+      #   break
+      if i in train_indices:
+        f_phn_tr.write(line)
+      if i in test_indices:
+        f_phn_tx.write(line) 
+      i += 1
+      
 if 1 in tasks:
   if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
     train_loader = torch.utils.data.DataLoader(
@@ -158,8 +168,8 @@ if 1 in tasks:
 
   if not bool(args.exp_dir):
       print("exp_dir not specified, automatically creating one...")
-      args.exp_dir = "exp/%s_AudioModel-%s_ImageModel-%s_Optim-%s_LR-%s_Epochs-%s" % (
-          args.dataset, args.audio_model, args.image_model, args.optim,
+      args.exp_dir = "exp/%s_%s_AudioModel-%s_ImageModel-%s_Optim-%s_LR-%s_Epochs-%s" % (
+          args.dataset, args.losstype, args.audio_model, args.image_model, args.optim,
           args.lr, args.n_epochs)
       print("\nexp_dir: %s" % args.exp_dir)
       os.makedirs("%s/models" % args.exp_dir)
@@ -170,7 +180,7 @@ if 1 in tasks:
 
   train(audio_model, image_model, train_loader, val_loader, args)
 
-if 2 in tasks: # TODO
+if 2 in tasks:
   with open(phone2idx_file, 'r') as f:
     phone2idx = json.load(f)
 
@@ -181,4 +191,3 @@ if 2 in tasks: # TODO
   audio_model = models.DavenetSmall(input_dim=len(phone2idx), embedding_dim=512) 
   image_model = models.NoOpEncoder(embedding_dim=512)
   align(audio_model, image_model, val_loader, args)
- 

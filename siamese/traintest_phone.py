@@ -98,7 +98,7 @@ def train(audio_model, image_model, train_loader, test_loader, args):
             image_output = image_model(image_input).unsqueeze(-1) # Make the image output 4D
 
             pooling_ratio = round(audio_input.size(-1) / audio_output.size(-1))
-            nphones.div_(pooling_ratio)
+            nphones = nphones // pooling_ratio
 
             # TODO
             if args.losstype == 'triplet':
@@ -182,7 +182,7 @@ def validate(audio_model, image_model, val_loader, args):
             A_embeddings.append(audio_output)
             
             pooling_ratio = round(audio_input.size(-1) / audio_output.size(-1))
-            nphones.div_(pooling_ratio)
+            nphones = nphones // pooling_ratio
 
             frame_counts.append(nphones.cpu())
             region_counts.append(nregions.cpu())
