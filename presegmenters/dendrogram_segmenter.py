@@ -82,19 +82,43 @@ class DendrogramSegmenter:
     return np.mean(self.integral_distances[s2, t2] - self.integral_distances[s2, t1] - self.integral_distances[s1, t2] + self.integral_distances[s1, t1])
 
 if __name__ == '__main__':
+  from clusteval import *
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experiment Directory')
+  parser.add_argument('--dataset', '-d', choices=['flickr', 'flickr_audio', 'mscoco2k', 'mscoco20k'], help='Dataset')
+  parser.add_argument('--tolerance', '-t', type=float, default=3, help='Tolerance for boundary F1')
+  parser.add_argument('--level', '-l', type=int, default=7, help='Tolerance for boundary F1')
+
+  args = parser.parse_args()
   logger = logging.basicConfig(filename='dendrogram.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
   logger = logging.getLogger(__name__)
-  datapath = '../data/'
-  L = 5
-  audio_feat_file = datapath + 'mscoco2k_mfcc_unsegmented.npz'
-  landmark_file = datapath + 'mscoco2k_gold_landmarks_dict.npz'
-  gt_boundaries = np.load(landmark_file)
+  datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
+  L = args.level
+  audio_feat_file = datapath + 'mscoco2k_mfcc_unsegmented.npz' 
+  feats = np.load(audio_feat_file)
   landmarks = {}
-  print('Groundtruth boundaries: ' + str(gt_boundaries))
-  for i in range(len(list(gt_boundaries.keys()))):
-    X = np.load(audio_feat_file)['arr_%d' % i]
+  # XXX
+  n = len(feats.keys()) 
+  for i in range(n):
+    X = feats['arr_%d' % i]
     segmenter = DendrogramSegmenter(X, metric='cosine')
     dendrogram = segmenter.segment(L=L)
     landmarks['arr_%d' % i] = np.nonzero(dendrogram[-1])[0]
   
-  np.savez('mscoco2k_subphone_landmarks.npz', **landmarks)
+  np.savez('mscoco2k_subphone_landmarks_dict.npz', **landmarks)
+
+  # Evaluate the quality of the segmentation
+  landmark_file = 'mscoco2k_subphone_landmarks_dict.npz' 
+  landmark_dict = np.load(landmark_file)
+  gold_file = '{}/{}'.format(args.exp_dir, 'mscoco2k_phone_units.phn')
+  phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
+  model_name = 'preseg'
+
+  pred_file = '{}/{}.class'.format(args.exp_dir, model_name)
+  with open(pred_file, 'w') as f:
+    f.write('Class 0\n')
+    for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
+      for start, end in zip(landmark_dict[example_id][:-1], landmark_dict[example_id][1:]):
+        f.write('{} {} {}\n'.format(example_id, start, end))
+    
+  term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=phone2idx_file, tol=args.tolerance, out_file='{}/{}'.format(args.exp_dir, model_name), visualize=True) 
