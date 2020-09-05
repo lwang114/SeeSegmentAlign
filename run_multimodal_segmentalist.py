@@ -13,9 +13,10 @@ import segmentalist.multimodal_segmentalist.hfbgmm as hfbgmm
 import segmentalist.multimodal_segmentalist.crp_aligner as crp_aligner
 import segmentalist.multimodal_segmentalist.hierarchical_gaussian_components_fixedvar as hierarchical_gaussian_components_fixedvar
 # from segmentalist.multimodal_segmentalist.mixture_multimodal_unigram_acoustic_wordseg import *
-
 from scipy import signal
 import argparse
+import os
+import pickle
 from utils.postprocess import *
 random.seed(2)
 np.random.seed(2)
@@ -110,55 +111,52 @@ parser.add_argument('--seed_boundaries_file', type=str, default=None, help='File
 parser.add_argument('--anneal', '-a', action='store_true', help='Use annealing for training')
 parser.add_argument('--fb_type', type=str, choices={'standard', 'viterbi'}, default='standard', help='Forward-backward function type for training')
 parser.add_argument('--start_step', type=int, default=0, help='Step to start the experiment')
-
+parser.add_argument('--resume', action='store_true')
 args = parser.parse_args()
 print(args)
+resume = args.resume
+if args.resume:
+  assert(bool(args.exp_dir))
+  with open('{}/args.pkl' % args.exp_dir, 'rb') as f:
+    args = pickle.load(f)
+args.resume = resume
 
 if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
 
-with open(args.exp_dir+'args.txt', 'w') as f:
-  f.write(str(args))
+with open('{}/args.txt'.format(args.exp_dir), 'w') as f_txt,\
+     open('{}/args.pkl'.format(args.exp_dir), 'wb') as f_pkl:
+  f_txt.write(str(args))
+  pickle.dump(args, f_pkl)
 
+tde_dir = '/ws/ifp-53_2/hasegawa/lwang114/tdev2/tde/share/' # TODO Download tdev2 in here
 if args.dataset == 'mscoco2k':
-  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
+  datasetpath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
+elif args.dataset == 'mscoco20k':
+  datasetpath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
+elif args.dataset == 'mscoco_imbalanced':
+  datasetpath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/'
+
+if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
   if args.audio_feat_type == 'synthetic':
     args.audio_feat_type = 'audio_gaussian_vectors'
-  audio_feature_file = datasetpath + 'mscoco2k_%s_unsegmented.npz' % args.audio_feat_type 
+  audio_feature_file = '{}/{}_{}_unsegmented.npz'.format(datasetpath, args.dataset, args.audio_feat_type) 
 
   if args.image_feat_type == 'res34':
     args.image_feat_type = 'res34_embed512dim'
   elif args.image_feat_type == 'synthetic':
     args.image_feat_type = 'concept_gaussian_vectors'
-  image_feature_file = datasetpath + 'mscoco2k_%s.npz' % args.image_feat_type 
-  concept2idx_file = datasetpath + 'concept2idx.json'
+  image_feature_file = '{}/{}_{}.npz'.format(args.datasetpath, args.dataset, args.image_feat_type) 
+  concept2idx_file = '{}/concept2idx.json'.format(args.datasetpath)
   pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
-  pred_segmentation_file = os.path.join(args.exp_dir, "mscoco2k_pred_segmentation.npy")
-  pred_landmark_segmentation_file = "%smscoco2k_pred_landmark_segmentation.npy" % args.exp_dir
-  gold_segmentation_file = datasetpath + "mscoco2k_gold_word_segmentation.npy"
-  pred_alignment_file = os.path.join(args.exp_dir, 'mscoco2k_pred_alignment.json')
-  gold_alignment_file = datasetpath + 'mscoco2k_gold_alignment.json'
+  pred_segmentation_file = os.path.join(args.exp_dir, "{}_pred_segmentation.npy".format(args.dataset))
+  pred_landmark_segmentation_file = "%s/{}_pred_landmark_segmentation.npy" % (args.dataset, args.exp_dir)
+  gold_segmentation_file = "{}/{}_gold_word_segmentation.npy".format(datasetpath, args.dataset)
+  pred_alignment_file = os.path.join(args.exp_dir, '{}_pred_alignment.json'.format(args.dataset))
+  phone_caption_file = '{}/{}_phone_captions.txt'.format(datapath, args.dataset) 
+  concept_caption_file = '{}/{}_image_captions.txt'.format(datapath, args.dataset) 
+  gold_alignment_file = '{}/{}_gold_alignment.json'.format(datasetpath, args.dataset)
   classifier_weights_npz = '' # TODO
-elif args.dataset == 'mscoco20k':
-  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
-  audio_feature_file = datasetpath + 'mscoco20k_mfcc.npz' 
-  image_feature_file = datasetpath + 'mscoco20k_%s.npz' % args.image_feat_type 
-  concept2idx_file = datasetpath + 'concept2idx.json'
-  pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
-  pred_segmentation_file = os.path.join(args.exp_dir, "mscoco20k_pred_segmentation.npy")
-  pred_landmark_segmentation_file = "%smscoco20k_pred_landmark_segmentation.npy" % args.exp_dir
-  gold_segmentation_file = datasetpath + "mscoco20k_gold_word_segmentation.npy"
-  pred_alignment_file = os.path.join(args.exp_dir, 'mscoco20k_pred_alignment.json')
-  gold_alignment_file = datasetpath + 'mscoco20k_gold_alignment.json'
-  classifier_weights_npz = '' # TODO
-elif args.dataset == 'mscoco_imbalanced':
-  args.vm_class = 'vgmm'
-  datasetpath = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/'
-  audio_feature_file = datasetpath + 'mscoco_imbalanced_mfcc_unsegmented.npz'
-  image_feature_file = datasetpath + 'mscoco_imbalanced_res34_embed512dim.npz'
-  concept2idx_file = datasetpath + 'concept2idx.json'
-  pred_alignment_file = os.path.join(args.exp_dir, 'mscoco_imbalanced_pred_alignment.json')
-  gold_alignment_file = datasetpath + 'mscoco_imbalanced_gold_alignment.json'
 
 downsample_rate = 1
 if args.audio_feat_type == 'ctc':
@@ -171,9 +169,10 @@ elif args.audio_feat_type.split('_')[0] == 'transformer':
     layer_idx = int(parts[2])
     audio_feature_file = '%s%s_transformer_encs_unsegmented.npz' % (datasetpath, args.dataset)
     a_npz = np.load(audio_feature_file)
-    a_feats = {k:a_npz[k][layer_idx] for k in sorted(a_npz, key=lambda x:int(x.split('_')[-1]))} # XXX
-    audio_feature_file = '%s%s_transformer_enc_%d.npz' % (datasetpath, args.dataset, layer_idx)
-    np.savez(audio_feature_file, **a_feats)
+    audio_feature_file = '%s%s_transformer_enc_%d_unsegmented.npz' % (datasetpath, args.dataset, layer_idx)
+    if not os.path.isfile(audio_feature_file):
+      a_feats = {k:a_npz[k][layer_idx].squeeze(0) for k in sorted(a_npz, key=lambda x:int(x.split('_')[-1]))} # XXX
+      np.savez(audio_feature_file, **a_feats)
 
 start_step = args.start_step
 if start_step == 0:
@@ -239,8 +238,9 @@ if start_step == 0:
             vec_ids[i + cur_start] = i_embed
             n_down_slices = args.embed_dim / feat_dim
             start_frame, end_frame = int(landmarks_dict[landmark_ids[i_train]][cur_start] / downsample_rate), int(landmarks_dict[landmark_ids[i_train]][cur_end] / downsample_rate)  
-            logger.info('len(landmarks_dict[i]), start_frame, end_frame, cur_start, cur_end: %d %d %d %d %d' % (len(landmarks_dict[landmark_ids[i_train]]), start_frame, end_frame, cur_start, cur_end))
+            # print('len(landmarks_dict[i]), start_frame, end_frame, cur_start, cur_end: %d %d %d %d %d' % (len(landmarks_dict[landmark_ids[i_train]]), start_frame, end_frame, cur_start, cur_end))
             if args.am_class != 'hfbgmm' or cur_end - cur_start == 1:
+              # print('i_embed, start_frame, end_frame: {} {} {} {}'.format(i_embed, start_frame, end_frame, feat_mat.shape))
               embed_mat[i_embed] = embed(feat_mat[start_frame:end_frame].T, n_down_slices, args)           
             durations[i + cur_start] = end_frame - start_frame
             i_embed += 1 
@@ -345,9 +345,12 @@ if start_step <= 2:
   if args.anneal:
     anneal_schedule = 'linear'
   
-  if args.am_class == "fbgmm":
-    if args.segmenter_class == 'standard':
-      segmenter = MultimodalUnigramAcousticWordseg(
+  if args.am_class == "fbgmm": 
+    am_M = args.am_M
+    model_name = args.am_class
+    with open('{}/model_names.txt'.format(args.exp_dir), 'r') as f:
+      f.write(model_name)
+    segmenter = MultimodalUnigramAcousticWordseg(
         am_class, am_alpha, am_K, am_param_prior,
         vm_class, vm_K, vm_param_prior,
         aligner_class,
@@ -360,26 +363,13 @@ if start_step <= 2:
         init_am_assignments='kmeans',
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         am_M=args.am_M,
-        model_name=args.exp_dir+'mbes_gmm'
+        model_name=args.exp_dir+model_name
         ) # XXX init_am_assignments='one-by-one',
-    elif args.segmenter_class == 'mixture':
-      segmenter = MixtureMultimodalUnigramAcousticWordseg(
-        am_class, am_alpha, am_K, am_param_prior,
-        vm_class, vm_K, vm_param_prior,
-        a_embedding_mats, a_vec_ids_dict, durations_dict, landmarks_dict, 
-        v_embedding_mats, v_vec_ids_dict,
-        seed_boundaries_dict=seed_boundaries_dict, seed_assignments_dict=seed_assignments_dict,
-        p_boundary_init=args.p_boundary_init, beta_sent_boundary=-1, 
-        time_power_term=args.time_power_term,
-        init_am_assignments='visually-guided', 
-        n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
-        model_name=args.exp_dir+'mbes_gmm'
-        ) 
-
     # Perform sampling
     record = segmenter.gibbs_sample(args.n_iter, 3, anneal_schedule=anneal_schedule, anneal_gibbs_am=True) 
   elif args.am_class == "hfbgmm":
     am_M = args.am_M
+    model_name = args.am_class
     segmenter = HierarchicalMultimodalUnigramAcousticWordseg(
         am_class, am_alpha, am_K, am_param_prior,
         vm_class, vm_K, vm_param_prior,
@@ -392,13 +382,15 @@ if start_step <= 2:
         n_slices_min=args.n_slices_min, n_slices_max=args.n_slices_max,
         fb_type=args.fb_type,
         am_M=am_M,
-        model_name=args.exp_dir+'hierarchical_mbes_gmm'
+        model_name=args.exp_dir+model_name
         ) 
+  with open('{}/model_names.txt'.format(args.exp_dir), 'r') as f:
+    last_epoch = (args.n_epochs // segmenter.n_print_epochs) * segmenter.n_print_epochs
+    f.write('{}_{}'.format(model_name, last_epoch))
 
     # Perform sampling
     record = segmenter.gibbs_sample(args.n_iter, 0, anneal_schedule=anneal_schedule, anneal_gibbs_am=True)
   print("Take %0.5f s to finish training !" % (time.time() - begin_time))
-  np.save("%spred_boundaries.npy" % args.exp_dir, segmenter.utterances.boundaries)
   
   means = []
   for k in range(segmenter.acoustic_model.components.K_max):
@@ -409,11 +401,63 @@ if start_step <= 2:
   segmenter.save_results(out_file=args.exp_dir + 'final_results')
 
 if start_step <= 3:
-    pred_alignment_file = args.exp_dir + 'final_results.json' 
     start_time = time.time()
-    file_prefix = args.exp_dir + '_'.join([args.dataset, args.am_class])
-    if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
-      phone_caption_file = 'data/%s_phone_captions.txt' % args.dataset 
-      # XXX include_null is set to true to include align_idx = 0
-      alignment_to_word_classes(pred_alignment_file, phone_caption_file, word_class_file='_'.join([file_prefix, 'words.class']), include_null=True)
+    with open('{}/model_names.txt'.format(args.exp_dir), 'r') as f:
+      model_name = f.read().strip()
+    file_prefix = '{}/{}'.format(args.exp_dir, model_name) 
+    pred_alignment_file = '{}_alignment.json'.format(file_prefix) 
+    word_class_file = '{}_words.class'.format(file_prefix)
+    # TODO Run the evaluation code here
+    if args.landmarks_file:
+      phone_unit_file = '{}/{}_segmented_phone_units.phn'.format(tde_dir, args.dataset)
+      word_unit_file = '{}/{}_segmented_word_units.wrd'.format(ted_dir, args.dataset)
+    else:
+      phone_unit_file = '{}/{}_unsegmented_phone_units.phn'.format(tde_dir, args.dataset)
+      word_unit_file = '{}/{}_unsegmented_word_units.wrd'.format(tde_dir, args.dataset)
+
+    if not os.path.isfile(phone_unit_file) or os.path.isfile(phone_unit_file):
+      alignment_to_word_units(gold_alignment_file, phone_caption_file, concept_caption_file, phone_unit_file=phone_unit_file, word_unit_file=word_unit_file, landmark_file=args.landmarks_file))
+    alignment_to_word_classes(pred_alignment_file, phone_caption_file, word_class_file=word_class_file, hierarchical=(args.am_class == 'hfbgmm'), include_null=True, landmark_file=args.landmarks_file, has_phone_alignment=False) 
+
+    if args.task_name == 'word_discovery':
+      phn_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('tde'),
+                'tde/share/{}'.format(phone_unit_file)) 
+      wrd_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('tde'),
+                'tde/share/{}'.format(word_unit_file)) 
+      gold = Gold(wrd_path=wrd_path, phn_path=phn_path)
+      discovered = Disc(word_class_file, gold)
+
+      grouping = Grouping(discovered)
+      grouping.compute_grouping()
+
+      coverage = Coverage(gold, discovered)
+      coverage.compute_coverage()
+
+      boundary = Boundary(gold, discovered)
+      boundary.compute_boundary()
+
+      ned = Ned(discovered)
+      ned.compute_ned()
+
+      token_type = TokenType(gold, discovered)
+      token_type.compute_token_type()
+
+      print('Grouping precision, recall and F1: ', grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / np.maximum(grouping.precision + grouping.recall, EPS))
+      print('Coverage: ', coverage.coverage)
+      print('Boundary precision, recall and F1: ', boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / np.maximum(boundary.precision + boundary.recall, EPS))
+      print('NED: ', ned.ned)
+      print('Token type precision, recall and F1: ', token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS))oken_type.precision, token_type.recall)
+
+      with open('{}/{}_scores.txt' % (args.exp_dir, model_name), 'w') as f:
+        f.write('Grouping precision: %.5f, recall: %.5f, f1: %.5f\n' % (grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / (grouping.precision + grouping.recall + EPS)))
+        f.write('Boundary precision: %.5f, recall: %.5f, f1: %.5f\n' % (boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / (boundary.precision + boundary.recall + EPS)))
+        f.write('Token/type precision: %.5f %.5f, recall: %.5f %.5f, f1: %.5f %.5f\n' % (token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1] / 2., EPS)))   # TODO Fix the double counting issue 
+        f.write('Coverage: %.5f\n' % coverage.coverage)
+        f.write('ned: %.5f\n' % ned.ned)
+
+    # TODO Generate the .pd file for the plots here
+    # TODO F1 vs. # iterations + initial segmentation quality
+    # TODO F1 histogram
     print('Finish converting files for ZSRC evaluations after %.5f s' % (time.time() - start_time)) 
