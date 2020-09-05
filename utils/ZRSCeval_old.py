@@ -97,7 +97,7 @@ if 0 in tasks:
     pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
   
     for i, (model_name, pred_alignment_file) in enumerate(zip(model_names, pred_alignment_files)):
-      has_phone_alignment = 'besgmm' in model_name 
+      has_phone_alignment = ('mbesgmm' in model_name) or ('dnnhmmdnn' in model_name) 
       discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name)
 
       if args.result_type == 'alignment':
@@ -204,7 +204,7 @@ if 1 in tasks:
       print(model_name)
       grouping = Grouping(discovered)
       grouping.compute_grouping()
-      print('Grouping precision and recall: ', grouping.precision, grouping.recall)
+      print('Grouping precision, recall and F1: ', grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / np.maximum(grouping.precision + grouping.recall, EPS))
       #print('Grouping fscore: ', grouping.fscore)
 
       coverage = Coverage(gold, discovered)
@@ -213,8 +213,7 @@ if 1 in tasks:
 
       boundary = Boundary(gold, discovered)
       boundary.compute_boundary()
-      print('Boundary precision and recall: ', boundary.precision, boundary.recall)
-      #print('Boundary fscore: ', boundary.fscore)
+      print('Boundary precision, recall and F1: ', boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / np.maximum(boundary.precision + boundary.recall, EPS))
 
       ned = Ned(discovered)
       ned.compute_ned()
@@ -222,7 +221,7 @@ if 1 in tasks:
 
       token_type = TokenType(gold, discovered)
       token_type.compute_token_type()
-      print('Token type precision and recall: ', token_type.precision, token_type.recall)
+      print('Token type precision, recall and F1: ', token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS))oken_type.precision, token_type.recall)
       #print('Token type fscore: ', token_type.fscore)
 
       with open('%s_scores.txt' % (args.exp_dir + model_name), 'w') as f:

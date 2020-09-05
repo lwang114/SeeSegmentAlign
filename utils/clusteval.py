@@ -240,9 +240,14 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
 
     for gold_start, gold_end, gold_unit in zip(cur_gold_boundaries[:-1], cur_gold_boundaries[1:], cur_gold_units):      
       for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
+        if i_ex == 0:
+          print(pred_end, gold_end)
         if abs(pred_end - gold_end) <= tol:
           n_correct_segments += 1
           break
+
+      if i_ex == 0:
+        print('Final: ', pred_end, gold_end)
 
       found = 0
       for pred_start, pred_end, pred_unit in zip(cur_pred_boundaries[:-1], cur_pred_boundaries[1:], cur_pred_units):       
@@ -251,7 +256,8 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
           break
       if found:
         token_confusion[gold_unit, pred_unit] += 1          
-
+  
+  print(n_correct_segments, n_gold_segments, n_pred_segments)
   boundary_rec = n_correct_segments / n_gold_segments
   boundary_prec = n_correct_segments / n_pred_segments
   if boundary_rec <= 0. or boundary_prec <= 0.:
@@ -305,22 +311,26 @@ def term_discovery_retrieval_metrics(pred_file, gold_file, phone2idx_file=None, 
     plt.savefig('{}.png'.format(out_file), dpi=100)
     plt.close()
 
-def accuracy(pred, gold, max_len=2000):
-  if DEBUG:
-    print("len(pred), len(gold): ", len(pred), len(gold))
+def alignment_accuracy(pred, gold, pred_lm=None, gold_lm=None, max_len=2000):
   assert len(pred) == len(gold)
   acc = 0.
   n = 0.
-  for n_ex, (p, g) in enumerate(zip(pred, gold)):
+  lm_keys = sorted(pred_lm, key=lambda x:int(x.split('_')[-1]))
+  for i_ex, (p, g) in enumerate(zip(pred, gold)):
     ali_p = p['alignment'][:max_len]
+    lm_p = pred_lm[lm_keys[i_ex]]
+    if lm_p[0] != 0:
+      lm_p.insert(0, 0)
+
     ali_g = g['alignment'][:max_len]
-    # if DEBUG:
-    # logging.debug("examples " + str(n_ex)) 
-    # print("examples " + str(n_ex))
-    # logging.debug("# of frames in predicted alignment and gold alignment: %d %d" % (len(ali_p), len(ali_g))) 
-    # print("# of frames in predicted alignment and gold alignment: %d %d" % (len(ali_p), len(ali_g)))
+    lm_g = gold_lm[lm_keys[i_ex]]
+    if lm_g[0] != 0:
+      lm_g.insert(0, 0)
+    lm_g = gold_lm[lm_keys[i_ex]]
     
-    # XXX assert len(ali_p) == len(ali_g)
+    if pred_lm and gold_lm:
+      ali_p = [a_p for a_p, start, end in zip(ali_p, lm_p[:-1], lm_p[1:]) for _ in range(end-start)]
+      ali_g = [a_g for a_g, start, end in zip(ali_g, lm_g[:-1], lm_g[1:]) for _ in range(end-start)] 
     for a_p, a_g in zip(ali_p, ali_g):
       acc += (a_p == a_g)
       n += 1
@@ -463,22 +473,13 @@ if __name__ == '__main__':
   #------------------------#
   if 2 in tasks:
     # Try using gold landmarks to generate pred_file and evaluate it using gold_file
-    landmark_file = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_subphone_landmarks_dict.npz' 
+    landmark_file = '/ws/ifp-04_3/hasegawa/lwang114/spring2020/data/mscoco2k_wbd_landmarks.npz' 
     landmark_dict = np.load(landmark_file)
     gold_file = '{}/{}'.format(args.exp_dir, 'mscoco2k_word_units.wrd') # '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/WDE/share/mscoco2k_phone_units.phn'
     phone2idx_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/concept2idx_65class.json' # '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_phone2id.json'
 
     with open('{}/{}'.format(args.exp_dir, 'model_names.txt'), 'r') as f:
       model_names = f.read().strip().split()
-
-    '''
-    pred_file = args.exp_dir + 'preseg.class'
-    with open(pred_file, 'w') as f:
-      f.write('Class 0\n')
-      for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
-        for start, end in zip(landmark_dict[example_id][:-1], landmark_dict[example_id][1:]):
-          f.write('{} {} {}\n'.format(example_id, start, end))
-    '''
 
     for model_name in model_names:
       print(model_name)

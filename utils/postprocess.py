@@ -361,7 +361,7 @@ def segmentation_to_word_classes(segmentation_file,
             word_units[NULL] = ['%s %d %d\n' % (pair_id, start, nPhones)]
           else:
             word_units[NULL].append('%s %d %d\n' % (pair_id, start, nPhones))
-  else:
+  elif segmentation_file.split('.')[-1] == 'json':
     with open(segmentation_file, 'r') as f:
       data_info = json.load(f)
     
@@ -393,7 +393,15 @@ def segmentation_to_word_classes(segmentation_file,
             word_units[label] = ['%s %d %d\n' % (pair_id, start, end)]
           else:
             word_units[label].append('%s %d %d\n' % (pair_id, start, end)) 
-
+  elif segmentation_file.split('_')[-1] == 'npz':
+    landmark_dict = np.load(segmentation_file)
+    # TODO
+    with open(word_class_file, 'w') as f:
+      f.write('Class 0\n')
+      for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
+        for start, end in zip(landmark_dict[example_id][:-1], landmark_dict[example_id][1:]):
+          f.write('{} {} {}\n'.format(example_id, start, end))
+  
   with open(word_class_file, 'w') as f:
     for i_c, c in enumerate(word_units):
       #print(i_c, c)
