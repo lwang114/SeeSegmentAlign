@@ -370,7 +370,7 @@ def plot_acoustic_features(utterance_idx, audio_dir, feat_dir, out_file=None):
     plt.show()
   plt.close()
 
-def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=False, out_file=None):
+def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, pred_landmarks_file=None, gold_landmarks_file=None, draw_plot=False, out_file=None):
   # Load the predicted alignment, gold alignment and concept dictionary 
   with open(pred_file, 'r') as f:
     pred = json.load(f)
@@ -380,21 +380,30 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
 
   with open(concept2idx_file, 'r') as f:
     concept2idx = json.load(f)
-
+  
+  if pred_landmarks_file and gold_landmarks_file:
+    pred_lms = np.load(pred_landmarks_file)
+    gold_lms = np.load(gold_landmarks_file)
+  
   concept_names = [c for c in concept2idx.keys()]
   n_c = len(concept_names)
   # For each concept, compute a concept F1 score by converting the alignment to a binary vector
   f1_scores = np.zeros((n_c,))
   # XXX
   for i_c, c in enumerate(concept_names):
-    print(c)
+    # print(c)
     pred_c = []
     gold_c = []
-    
-    for p, g in zip(pred, gold):
+    lm_keys = sorted(pred_lms, key=lambda x:int(x.split('_')[-1]))
+    for ex, (p, g) in enumerate(zip(pred, gold)):
       cur_concepts = [concept_names[j_c] for j_c in g['image_concepts']] 
       p_ali = p['alignment']
+      p_lm = pred_lms[lm_keys[ex]]
       g_ali = g['alignment'] 
+      g_lm = gold_lms[lm_keys[ex]]
+      if pred_landmarks_file and gold_landmarks_file:
+        p_ali = [a_p for a_p, start, end in zip(p_ali, p_lm[:-1], p_lm[1:]) for _ in range(end-start)]
+        g_ali = [a_g for a_g, start, end in zip(g_ali, g_lm[:-1], g_lm[1:]) for _ in range(end-start)]
       p_ali_c = []
       g_ali_c = [] 
       for a_p, a_g in zip(p_ali, g_ali):
@@ -539,7 +548,7 @@ def plot_crp_counts(exp_dir, phone_corpus, gold_file, draw_plot=False, out_file=
       plt.show()
       plt.close()
 
-def plot_likelihood_curve(exp_dir):
+def plot_likelihood_curve(exp_dir, draw_plot=False):
   likelihood_data = {'Number of Iterations':[],\
                      'Average Log Likelihood':[],\
                      'Model Name':[]}
@@ -578,10 +587,12 @@ def plot_likelihood_curve(exp_dir):
 
   print(len(likelihood_data['Number of Iterations']), len(likelihood_data['Average Log Likelihood']), len(likelihood_data['Model Name']))
   likelihood_df = pd.DataFrame(likelihood_data)
-  ax = sns.lineplot(x='Number of Iterations', y='Average Log Likelihood', hue='Model Name', data=likelihood_df)
-  plt.show()
-  plt.savefig(exp_dir+'avg_log_likelihood')
-  plt.close() 
+  if draw_plot:
+    ax = sns.lineplot(x='Number of Iterations', y='Average Log Likelihood', hue='Model Name', data=likelihood_df)
+    plt.show()
+    plt.savefig(exp_dir+'avg_log_likelihood')
+    plt.close() 
+  
 
 def plot_posterior_gap_curve(exp_dir):
   gap_data = {'Number of Iterations':[],\
@@ -616,7 +627,9 @@ def plot_BF1_vs_EM_iteration(exp_dir, dataset,
                             tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/',
                             out_dir = None, 
                             hierarchical=True,
+                            landmarks_file=None,
                             level='word',
+                            draw_plot=False,
                             model_name = None):
   phone_corpus = '{}/{}/{}_phone_captions.txt'.format(data_path, dataset, dataset)
   phone2idx_file = '{}/mscoco_phone2id.json'.format(data_path)
@@ -625,21 +638,33 @@ def plot_BF1_vs_EM_iteration(exp_dir, dataset,
     if data_file.split('.')[-1] == 'json':
       if not model_name:
         model_name = data_file.split('.')[0]
-      n_iter = int(data_file.split('.')[0].split('_')[-1])
+
+      if data_file.split('.')[0].split('_')[-1] == 'alignment':
+        n_iter = int(data_file.split('.')[0].split('_')[-2])
+      else: 
+        n_iter = int(data_file.split('.')[0].split('_')[-1])
+      
       disc_clsfile = '{}/discovered_words_{}_{}.class'.format(exp_dir, model_name, n_iter)
       if level == 'word':
-        alignment_to_word_classes('{}/{}'.format(exp_dir, data_file), phone_corpus, disc_clsfile, hierarchical=hierarchical) 
+        alignment_to_word_classes('{}/{}'.format(exp_dir, data_file), phone_corpus, disc_clsfile, landmark_file=landmarks_file, hierarchical=hierarchical) 
       elif level == 'phone':
-        segmentation_to_phone_classes('{}/{}'.format(exp_dir, data_file), phone_class_file=disc_clsfile, landmark_file='{}/landmarks_dict.npz'.format(exp_dir), include_null=True) 
+        segmentation_to_phone_classes('{}/{}'.format(exp_dir, data_file), phone_class_file=disc_clsfile, landmark_file=landmarks_file, include_null=True) 
       
   # Compute boundary F1 scores
-  os.system('cd {} && python setup.py build && python setup.py install'.format(tde_dir))
-  wrd_path = pkg_resources.resource_filename(
-                pkg_resources.Requirement.parse('WDE'),
-                            'WDE/share/{}_word_units.wrd'.format(dataset))
-  phn_path = pkg_resources.resource_filename(
-                pkg_resources.Requirement.parse('WDE'),
-                            'WDE/share/{}_phone_units.phn'.format(dataset))
+  if landmarks_file: 
+    wrd_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('tde'),
+                            'tde/share/{}_unsegmented_word_units.wrd'.format(dataset))
+    phn_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('tde'),
+                            'tde/share/{}_unsegmented_phone_units.phn'.format(dataset))
+  else:
+    wrd_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('tde'),
+                            'tde/share/{}_segmented_word_units.wrd'.format(dataset))
+    phn_path = pkg_resources.resource_filename(
+                pkg_resources.Requirement.parse('tde'),
+                            'tde/share/{}_segmented_phone_units.phn'.format(dataset))
   gold = Gold(wrd_path=wrd_path,
               phn_path=phn_path)
   
@@ -698,15 +723,16 @@ def plot_BF1_vs_EM_iteration(exp_dir, dataset,
 
   # Create the BF1 vs iteration plot
   f1_df = pd.DataFrame(f1_data)
-  sns.set_style('whitegrid')
-  ax = sns.lineplot(x='Number of Iterations', y='Boundary F1', data=f1_df)
-  plt.show()
-  plt.close()
-  if out_dir:
-    plt.savefig('{}/{}_f1_vs_iteration.png'.format(out_dir, model_name))
+
+  if draw_plot:
+    sns.set_style('whitegrid')
+    ax = sns.lineplot(x='Number of Iterations', y='Boundary F1', data=f1_df)
+    plt.show()
+    plt.close()
+    if out_dir:
+      plt.savefig('{}/{}_f1_vs_iteration.png'.format(out_dir, model_name))
     f1_df.to_csv('{}/{}_f1_vs_iteration.csv'.format(out_dir, model_name))
-  else:
-    plt.savefig('{}/{}_f1_vs_iteration.png'.format(exp_dir, model_name))
+  else: 
     f1_df.to_csv('{}/{}_f1_vs_iteration.csv'.format(exp_dir, model_name))
 
 def plot_multiple_BF1_vs_EM_iteration(exp_dir, dataset, hierarchical=True, level='word'):

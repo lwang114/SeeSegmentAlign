@@ -138,6 +138,7 @@ class MultimodalUnigramAcousticWordseg(object):
             init_am_assignments="rand",
             time_power_term=1., 
             am_M = None,
+            n_print_epochs=5,
             model_name='mbes_gmm'):
 
         self.model_name = model_name
@@ -278,7 +279,7 @@ class MultimodalUnigramAcousticWordseg(object):
         
         # Generate unsupervised transcripts as target sentences to the aligner
         a_sents = [np.asarray(self.get_unsup_transcript_i(i_utt)) for i_utt in range(self.utterances.D)]
-        # XXX print('a_sents[:10]', a_sents[:10])
+        # print('a_sents[:10]', a_sents[:10])
 
         # Initialize aligner        
         self.alignment_model = aligner_class(v_sents, a_sents, vm_K, am_K) 
@@ -543,8 +544,8 @@ class MultimodalUnigramAcousticWordseg(object):
             logger.info(info)
             
             # Save the alignment and segmentation info
-            if i_iter % 5 == 0:
-              self.save_results(self.model_name+'_results_%d.json' % i_iter)
+            if (i_iter + 1) % self.n_print_epochs == 0:
+              self.save_results(self.model_name+'_%d_alignment.json' % i_iter)
 
         return record_dict
 

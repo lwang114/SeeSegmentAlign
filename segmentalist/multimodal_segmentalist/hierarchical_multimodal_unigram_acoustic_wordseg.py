@@ -138,7 +138,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             beta_sent_boundary=2.0, lms=1., wip=0., fb_type="standard",
             init_am_assignments="rand",
             time_power_term=1., 
-            am_M = None,
+            am_M=None,
+            n_print_epochs=5,
             model_name='hierarchical_mbes_gmm'):
 
         self.model_name = model_name
@@ -159,6 +160,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         self.wip = wip
         self.time_power_term = time_power_term
         self.set_fb_type(fb_type)
+        self.n_print_epochs = n_print_epochs
 
         # Process embeddings into a single matrix, and vec_ids into a list (entry for each utterance)
         a_embeddings, a_vec_ids, ids_to_utterance_labels = process_embeddings(
@@ -408,7 +410,7 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         
         # Update alignment parameters 
         trg_sent = np.asarray(self.get_unsup_transcript_i(i))       
-        # XXX print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
+        # print('In HM gibbs_sample_i, example, trg_sent: ' + str(i) + ' ' + str(trg_sent))
         self.alignment_model.add_item(i, self.alignment_model.src_sents[i], trg_sent)
 
         # Debug trace
@@ -553,8 +555,8 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
             logger.info(info)
             
             # Save the alignment and segmentation info
-            if i_iter % 5 == 0:
-              self.save_results(self.model_name+'_results_%d.json' % i_iter)
+            if (i_iter + 1) % self.n_print_epochs == 0:
+              self.save_results(self.model_name+'_%d_alignment.json' % i_iter)
 
         return record_dict
 
@@ -641,7 +643,6 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
           S += (a_embeddings[i_embed] - m_0) ** 2 / count
        
       return FixedVarPrior(S/(6.*self.am_M)*D, m_0, S/6.*D)
-
 
     def save_results(self, out_file):
       alignments = self.alignment_model.align_corpus()
@@ -851,9 +852,6 @@ def forward_backward(vec_embed_log_probs, log_p_continue, N, n_slices_min=0,
             p_k = np.exp(log_p_k_anneal)
         else:
             p_k = np.exp(log_p_k[::-1] - _cython_utils.logsumexp(log_p_k))
-            # print('In HM forward backward, time %d log p_k: ' % (t) + ' ' + str(log_p_k)) # XXX
-            # print('In HM forward backward, time %d _cython_utils.logsumexp(vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut]' % t + ' ' + str(_cython_utils.logsumexp(vec_embed_log_probs[i:i + t][-n_slices_max:n_slices_min_cut])))
-            # print('In HM forward backward, time %d p_k: ' % (t) + ' ' + str(p_k)) # XXX
         k = _cython_utils.draw(p_k) + 1
         if n_slices_min_cut is not None:
             k += n_slices_min - 1

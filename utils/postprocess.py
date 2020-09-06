@@ -393,10 +393,13 @@ def segmentation_to_word_classes(segmentation_file,
             word_units[label] = ['%s %d %d\n' % (pair_id, start, end)]
           else:
             word_units[label].append('%s %d %d\n' % (pair_id, start, end)) 
-  elif segmentation_file.split('_')[-1] == 'npz':
+  elif segmentation_file.split('.')[-1] == 'npz':
     landmark_dict = np.load(segmentation_file)
     word_units = {'Class 0': []}
-    for example_id in sorted(landmark_dict, key=lambda x:int(x.split('_')[-1])):
+    for ex, example_id in enumerate(sorted(landmark_dict, key=lambda x:int(x.split('_')[-1]))):
+      if ex > 199: # XXX
+        continue 
+
       lm = landmark_dict[example_id]
       if lm[0] != 0:
         lm.insert(0, 0)

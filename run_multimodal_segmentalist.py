@@ -23,6 +23,7 @@ from tde.measures.ned import *
 from tde.measures.token_type import *
 from utils.postprocess import *
 from utils.clusteval import alignment_accuracy, term_discovery_retrieval_metrics
+from utils.plot import *
 from scipy import signal
 import argparse
 import os
@@ -125,11 +126,15 @@ parser.add_argument('--resume', action='store_true')
 args = parser.parse_args()
 print(args)
 resume = args.resume
+start_step = args.start_step
+task_name = args.task_name
 if args.resume:
   assert(bool(args.exp_dir))
-  with open('{}/args.pkl' % args.exp_dir, 'rb') as f:
+  with open('{}/args.pkl'.format(args.exp_dir), 'rb') as f:
     args = pickle.load(f)
 args.resume = resume
+args.start_step = start_step
+args.task_name = task_name
 
 if not os.path.isdir(args.exp_dir):
   os.mkdir(args.exp_dir)
@@ -139,7 +144,7 @@ with open('{}/args.txt'.format(args.exp_dir), 'w') as f_txt,\
   f_txt.write(str(args))
   pickle.dump(args, f_pkl)
 
-tde_dir = '/ws/ifp-53_2/hasegawa/lwang114/tdev2/tde/share/' # TODO Download tdev2 in here
+tde_dir = './utils/tdev2/tde/share/' # TODO Download tdev2 in here
 if args.dataset == 'mscoco2k':
   datasetpath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
 elif args.dataset == 'mscoco20k':
@@ -156,16 +161,16 @@ if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
     args.image_feat_type = 'res34_embed512dim'
   elif args.image_feat_type == 'synthetic':
     args.image_feat_type = 'concept_gaussian_vectors'
-  image_feature_file = '{}/{}_{}.npz'.format(args.datasetpath, args.dataset, args.image_feat_type) 
-  concept2idx_file = '{}/concept2idx.json'.format(args.datasetpath)
-  phone2idx_file = '{}/phone2idx.json'.format(args.datasetpath)
+  image_feature_file = '{}/{}_{}.npz'.format(datasetpath, args.dataset, args.image_feat_type) 
+  concept2idx_file = '{}/concept2idx.json'.format(datasetpath)
+  phone2idx_file = '{}/phone2idx.json'.format(datasetpath)
   pred_boundary_file = os.path.join(args.exp_dir, "pred_boundaries.npy")
   pred_segmentation_file = os.path.join(args.exp_dir, "{}_pred_segmentation.npy".format(args.dataset))
-  pred_landmark_segmentation_file = "%s/{}_pred_landmark_segmentation.npy" % (args.dataset, args.exp_dir)
+  pred_landmark_segmentation_file = "{}/{}_pred_landmark_segmentation.npy".format(args.exp_dir, args.dataset)
   gold_segmentation_file = "{}/{}_gold_word_segmentation.npy".format(datasetpath, args.dataset)
   pred_alignment_file = os.path.join(args.exp_dir, '{}_pred_alignment.json'.format(args.dataset))
-  phone_caption_file = '{}/{}_phone_captions.txt'.format(datapath, args.dataset) 
-  concept_caption_file = '{}/{}_image_captions.txt'.format(datapath, args.dataset) 
+  phone_caption_file = '{}/{}_phone_captions.txt'.format(datasetpath, args.dataset) 
+  concept_caption_file = '{}/{}_image_captions.txt'.format(datasetpath, args.dataset) 
   gold_alignment_file = '{}/{}_gold_alignment.json'.format(datasetpath, args.dataset)
   gold_landmarks_file = '{}/{}_landmarks_dict.npz'.format(datasetpath, args.dataset)
   classifier_weights_npz = '' # TODO
@@ -422,16 +427,16 @@ if start_step <= 3:
     init_word_class_file = None
     # TODO Run the evaluation code here, including both alignment-based and segment-based
     if args.landmarks_file:
-      phone_unit_file = '{}/{}_segmented_phone_units.phn'.format(tde_dir, args.dataset)
-      word_unit_file = '{}/{}_segmented_word_units.wrd'.format(ted_dir, args.dataset)
-      init_word_class_file = '{}_initial_words.class'.format(file_prefix)
-      segmentation_to_word_classes(args.landmarks_file, init_word_class_file, )
-    else:
       phone_unit_file = '{}/{}_unsegmented_phone_units.phn'.format(tde_dir, args.dataset)
       word_unit_file = '{}/{}_unsegmented_word_units.wrd'.format(tde_dir, args.dataset)
+      init_word_class_file = '{}_initial_words.class'.format(file_prefix)
+      segmentation_to_word_classes(args.landmarks_file, init_word_class_file)
+    else:
+      phone_unit_file = '{}/{}_segmented_phone_units.phn'.format(tde_dir, args.dataset)
+      word_unit_file = '{}/{}_segmented_word_units.wrd'.format(tde_dir, args.dataset)
 
     if not os.path.isfile(phone_unit_file) or os.path.isfile(phone_unit_file):
-      alignment_to_word_units(gold_alignment_file, phone_caption_file, concept_caption_file, phone_unit_file=phone_unit_file, word_unit_file=word_unit_file, landmark_file=gold_landmarks_file))
+      alignment_to_word_units(gold_alignment_file, phone_caption_file, concept_caption_file, phone_unit_file=phone_unit_file, word_unit_file=word_unit_file, landmark_file=gold_landmarks_file)
     alignment_to_word_classes(pred_alignment_file, phone_caption_file, word_class_file=word_class_file, hierarchical=(args.am_class == 'hfbgmm'), include_null=True, landmark_file=args.landmarks_file, has_phone_alignment=False) 
 
     if args.task_name == 'word_discovery':
@@ -463,7 +468,7 @@ if start_step <= 3:
       print('Coverage: ', coverage.coverage)
       print('Boundary precision, recall and F1: ', boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / np.maximum(boundary.precision + boundary.recall, EPS))
       print('NED: ', ned.ned)
-      print('Token type precision, recall and F1: ', token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS))oken_type.precision, token_type.recall)
+      print('Token type precision, recall and F1: ', token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS))
 
       if init_word_class_file:
         discovered_init = Disc(init_word_class_file, gold)
@@ -477,7 +482,7 @@ if start_step <= 3:
         gold_landmark = np.load(gold_landmarks_file)
       align_accuracy = alignment_accuracy(pred_alignment, gold_alignment, pred_landmark, gold_landmark)
       
-      with open('{}/{}_scores.txt' % (args.exp_dir, model_name), 'w') as f:
+      with open('{}/{}_scores.txt'.format(args.exp_dir, model_name), 'w') as f:
         f.write('Alignment accuracy: %.5f\n' % align_accuracy)
         f.write('Grouping precision: %.5f, recall: %.5f, f1: %.5f\n' % (grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / (grouping.precision + grouping.recall + EPS)))
         f.write('Boundary precision: %.5f, recall: %.5f, f1: %.5f\n' % (boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / (boundary.precision + boundary.recall + EPS)))
@@ -497,9 +502,10 @@ if start_step <= 3:
     print('Finish ZSRC evaluations after %.5f s' % (time.time() - start_time)) 
 
     # BF1 vs. # of iterations 
-    plot_BF1_vs_EM_iteration(exp_dir=args.exp_dir, dataset=args.dataset, hierarchical=(args.am_class=='hfbgmm'), level=args.task_name.split('_')[0]) 
+    # TODO Put the options inside the function
+    plot_BF1_vs_EM_iteration(exp_dir=args.exp_dir, dataset=args.dataset, hierarchical=(args.am_class=='hfbgmm'), landmarks_file=args.landmarks_file, level=args.task_name.split('_')[0]) 
 
     # BF1 vs # of concepts
-    plot_F1_score_histogram(pred_alignment_file, gold_alignment_file, concept2idx_file=concept2idx_file, draw_plot=False, out_file='{}_bf1_score_histogram'.format(file_prefix))
+    plot_F1_score_histogram(pred_alignment_file, gold_alignment_file, pred_landmarks_file=args.landmarks_file, gold_landmarks_file=gold_landmarks_file, concept2idx_file=concept2idx_file, draw_plot=False, out_file='{}_bf1_score_histogram'.format(file_prefix))
     print('Finish generating visualizations after %.5f s' % (time.time() - start_time)) 
  
