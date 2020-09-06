@@ -450,12 +450,18 @@ def plot_F1_score_histogram(pred_file, gold_file, concept2idx_file, draw_plot=Fa
     plt.xlabel('F1 score')
     plt.ylabel('Number of concepts')
     plt.title('Histogram of concept-level F1 scores')
+  
     if out_file:
+      # TODO Save the data as pd file
       plt.savefig(out_file)
     else:
       plt.show()
     return f1_scores
   else:
+    if out_file:
+      f1_df = {'Concept names': concept_names, 'F1 score': f1_scores}
+      f1_df = pd.DataFrame(f1_df)
+      f1_df.to_csv('{}.csv'.format(out_file)) 
     return f1_scores
 
 def plot_crp_counts(exp_dir, phone_corpus, gold_file, draw_plot=False, out_file=None, n_epochs=20, n_vocabs=10, n_steps=4, include_null=True):
@@ -644,7 +650,11 @@ def plot_BF1_vs_EM_iteration(exp_dir, dataset,
     if data_file.split('.')[-1] == 'json':
       if not model_name:
         model_name = data_file.split('.')[0]
-      n_iter = int(data_file.split('.')[0].split('_')[-1])
+      
+      if data_file.split('.')[0].split('_')[-1] == 'alignment':
+        n_iter = int(data_file.split('.')[0].split('_')[-2])
+      else:
+        n_iter = int(data_file.split('.')[0].split('_')[-1])
       disc_clsfile = '{}/discovered_words_{}_{}.class'.format(exp_dir, model_name, n_iter)
       print(disc_clsfile)
       
