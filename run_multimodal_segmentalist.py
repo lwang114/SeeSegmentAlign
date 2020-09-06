@@ -496,10 +496,10 @@ if start_step <= 3:
       term_discovery_retrieval_metrics(word_class_file, phone_unit_file, phone2idx_file=phone2idx_file, tol=tol, visualize=True, out_file='{}/{}_scores'.format(args.exp_dir, model_name))  
     print('Finish ZSRC evaluations after %.5f s' % (time.time() - start_time)) 
 
-    # TODO Generate the .pd file for the plots here
-    # TODO F1 vs. # iterations + initial segmentation quality
+    # BF1 vs. # of iterations 
     plot_BF1_vs_EM_iteration(exp_dir=args.exp_dir, dataset=args.dataset, hierarchical=(args.am_class=='hfbgmm'), level=args.task_name.split('_')[0]) 
 
-    # TODO F1 histogram
-
-
+    # BF1 vs # of concepts
+    plot_F1_score_histogram(pred_alignment_file, gold_alignment_file, concept2idx_file=concept2idx_file, draw_plot=False, out_file='{}_bf1_score_histogram'.format(file_prefix))
+    print('Finish generating visualizations after %.5f s' % (time.time() - start_time)) 
+ 
