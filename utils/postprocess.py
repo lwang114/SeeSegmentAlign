@@ -60,7 +60,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
                                      phone_unit_file='phone_units.phn',
                                      split_file = None,
                                      concept2id_file = None,
-                                     include_null = False):
+                                     include_null = True):
   with open(phone_corpus, 'r') as f_p,\
        open(concept_corpus, 'r') as f_c:
     a_corpus, v_corpus = [], []
@@ -108,7 +108,7 @@ def alignment_to_word_units(alignment_file, phone_corpus,
     if lms:
       lm = lms[lm_id]
       if lm[0] != 0:
-        lm = np.append([0], lm)
+        lm = np.append(0, lm)
     # print(pair_id) 
     prev_align_idx = -1
     start = 0
@@ -494,7 +494,6 @@ def segmentation_to_phone_classes(segmentation_file,
               phone_units[phone_label].append('%s %d %d\n' % (pair_id, cur_lms[start], cur_lms[end]))
             else:
               phone_units[phone_label].append('%s %d %d\n' % (pair_id, start, end))
-
  
   with open(phone_class_file, 'w') as f:
     for i_c, c in enumerate(phone_units):

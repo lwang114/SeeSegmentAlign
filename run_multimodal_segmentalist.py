@@ -31,8 +31,6 @@ import pickle
 random.seed(2)
 np.random.seed(2)
 
-logging.basicConfig(filename="train.log", format="%(asctime)s %(message)s)", level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 print(__name__)
 i_debug_monitor = -1  # 466  # the index of an utterance which is to be monitored
 segment_debug_only = False  # only sample the debug utterance
@@ -125,6 +123,9 @@ parser.add_argument('--task_name', type=str, choices={'word_discovery', 'phone_d
 parser.add_argument('--resume', action='store_true')
 args = parser.parse_args()
 print(args)
+logging.basicConfig(filename="{}/train.log".format(args.exp_dir), format="%(asctime)s %(message)s)", level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 resume = args.resume
 start_step = args.start_step
 task_name = args.task_name
@@ -427,16 +428,19 @@ if start_step <= 3:
     init_word_class_file = None
     # TODO Run the evaluation code here, including both alignment-based and segment-based
     if args.landmarks_file:
-      phone_unit_file = '{}/{}_unsegmented_phone_units.phn'.format(tde_dir, args.dataset)
-      word_unit_file = '{}/{}_unsegmented_word_units.wrd'.format(tde_dir, args.dataset)
+      phone_unit_file = '{}/{}_framelevel_phone_units.phn'.format(tde_dir, args.dataset)
+      word_unit_file = '{}/{}_framelevel_word_units.wrd'.format(tde_dir, args.dataset)
       init_word_class_file = '{}_initial_words.class'.format(file_prefix)
       segmentation_to_word_classes(args.landmarks_file, init_word_class_file)
     else:
-      phone_unit_file = '{}/{}_segmented_phone_units.phn'.format(tde_dir, args.dataset)
-      word_unit_file = '{}/{}_segmented_word_units.wrd'.format(tde_dir, args.dataset)
+      phone_unit_file = '{}/{}_segmentlevel_phone_units.phn'.format(tde_dir, args.dataset)
+      word_unit_file = '{}/{}_segmentlevel_word_units.wrd'.format(tde_dir, args.dataset)
 
     if not os.path.isfile(phone_unit_file) or os.path.isfile(phone_unit_file):
-      alignment_to_word_units(gold_alignment_file, phone_caption_file, concept_caption_file, phone_unit_file=phone_unit_file, word_unit_file=word_unit_file, landmark_file=gold_landmarks_file)
+      if args.landmarks_file:
+        alignment_to_word_units(gold_alignment_file, phone_caption_file, concept_caption_file, phone_unit_file=phone_unit_file, word_unit_file=word_unit_file, landmark_file=gold_landmarks_file)
+      else:
+        alignment_to_word_units(gold_alignment_file, phone_caption_file, concept_caption_file, phone_unit_file=phone_unit_file, word_unit_file=word_unit_file, landmark_file=None)
     alignment_to_word_classes(pred_alignment_file, phone_caption_file, word_class_file=word_class_file, hierarchical=(args.am_class == 'hfbgmm'), include_null=True, landmark_file=args.landmarks_file, has_phone_alignment=False) 
 
     if args.task_name == 'word_discovery':
@@ -464,15 +468,16 @@ if start_step <= 3:
       token_type = TokenType(gold, discovered)
       token_type.compute_token_type()
 
-      print('Grouping precision, recall and F1: ', grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / np.maximum(grouping.precision + grouping.recall, EPS))
+      print('Grouping precision {}, recall {} and F1 {}'.format(grouping.precision, grouping.recall, 2 * grouping.precision * grouping.recall / np.maximum(grouping.precision + grouping.recall, EPS)))
       print('Coverage: ', coverage.coverage)
-      print('Boundary precision, recall and F1: ', boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / np.maximum(boundary.precision + boundary.recall, EPS))
+      print('Boundary precision {}, recall {} and F1 {}'.format(boundary.precision, boundary.recall, 2 * boundary.precision * boundary.recall / np.maximum(boundary.precision + boundary.recall, EPS)))
       print('NED: ', ned.ned)
-      print('Token type precision, recall and F1: ', token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS))
+      print('Token type precision {}/{}, recall {}/{} and F1 {}/{}'.format(token_type.precision[0], token_type.precision[1], token_type.recall[0], token_type.recall[1], 2 * token_type.precision[0] * token_type.recall[0] / (token_type.precision[0] + token_type.recall[0] + EPS), 2 * token_type.precision[1] * token_type.recall[1] / np.maximum(token_type.precision[1] + token_type.recall[1], EPS)))
 
       if init_word_class_file:
         discovered_init = Disc(init_word_class_file, gold)
         init_boundary = Boundary(gold, discovered_init)
+        init_boundary.compute_boundary()
 
       with open(pred_alignment_file, 'r') as f_p,\
            open(gold_alignment_file, 'r') as f_g:
@@ -493,10 +498,10 @@ if start_step <= 3:
           f.write('Initial boundary precision: %.5f, recall: %.5f, f1: %.5f\n' % (init_boundary.precision, init_boundary.recall, 2 * init_boundary.precision * init_boundary.recall / (init_boundary.precision + init_boundary.recall + EPS)))
     else:
       if args.landmarks:
-        phone_unit_file = '{}/{}_unsegmented_phone_units.phn'.format(tde_dir, args.dataset)
+        phone_unit_file = '{}/{}_framelevel_phone_units.phn'.format(tde_dir, args.dataset)
         tol = 3
       else:
-        phone_unit_file = '{}/{}_segmented_phone_units.phn'.format(tde_dir, args.dataset)
+        phone_unit_file = '{}/{}_segmentlevel_phone_units.phn'.format(tde_dir, args.dataset)
         tol = 0
       term_discovery_retrieval_metrics(word_class_file, phone_unit_file, phone2idx_file=phone2idx_file, tol=tol, visualize=True, out_file='{}/{}_scores'.format(args.exp_dir, model_name))  
     print('Finish ZSRC evaluations after %.5f s' % (time.time() - start_time)) 
@@ -507,5 +512,4 @@ if start_step <= 3:
 
     # BF1 vs # of concepts
     plot_F1_score_histogram(pred_alignment_file, gold_alignment_file, pred_landmarks_file=args.landmarks_file, gold_landmarks_file=gold_landmarks_file, concept2idx_file=concept2idx_file, draw_plot=False, out_file='{}_bf1_score_histogram'.format(file_prefix))
-    print('Finish generating visualizations after %.5f s' % (time.time() - start_time)) 
- 
+    print('Finish generating visualizations after %.5f s' % (time.time() - start_time))  

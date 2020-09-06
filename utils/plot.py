@@ -13,13 +13,13 @@ import pandas as pd
 import seaborn as sns; sns.set()
 from shutil import copyfile 
 import pkg_resources 
-from WDE.readers.gold_reader import *
-from WDE.readers.disc_reader import *
-from WDE.measures.grouping import * 
-from WDE.measures.coverage import *
-from WDE.measures.boundary import *
-from WDE.measures.ned import *
-from WDE.measures.token_type import *
+from tde.readers.gold_reader import *
+from tde.readers.disc_reader import *
+from tde.measures.grouping import * 
+from tde.measures.coverage import *
+from tde.measures.boundary import *
+from tde.measures.ned import *
+from tde.measures.token_type import *
 try:
   from postprocess import * 
   from clusteval import *  

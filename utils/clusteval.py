@@ -127,10 +127,9 @@ def alignment_retrieval_metrics(pred, gold, out_file='class_retrieval_scores.txt
     
     for a_p, a_g in zip(p_ali, g_ali):
       confusion[a_g, a_p] += 1.
-  print(confusion)
   f1 = v / np.sum(1. / np.maximum(np.diag(confusion) / np.maximum(np.sum(confusion, axis=1), 1), EPS))
-  if print_results: 
-    print('Alignment F1: ' + str(f1))
+  # if print_results: 
+  #  print('Alignment F1: ' + str(f1))
   if return_results:
     return confusion
 
@@ -320,12 +319,12 @@ def alignment_accuracy(pred, gold, pred_lm=None, gold_lm=None, max_len=2000):
     ali_p = p['alignment'][:max_len]
     lm_p = pred_lm[lm_keys[i_ex]]
     if lm_p[0] != 0:
-      lm_p.insert(0, 0)
+      lm_p = np.append(0, lm_p)
 
     ali_g = g['alignment'][:max_len]
     lm_g = gold_lm[lm_keys[i_ex]]
     if lm_g[0] != 0:
-      lm_g.insert(0, 0)
+      lm_g = np.append(0, lm_g)
     lm_g = gold_lm[lm_keys[i_ex]]
     
     if pred_lm and gold_lm:
