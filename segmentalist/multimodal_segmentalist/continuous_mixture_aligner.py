@@ -193,7 +193,13 @@ if __name__ == '__main__':
       path = json.load(f)
   else:
     with open('../../data/mscoco_path.json', 'w') as f:
-      path = # TODO
+      root = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
+      path = {'root': root,\
+              'text_caption_file_train': '{}/train2014/mscoco_train_text_caption.txt'.format(root),\
+              'text_caption_file_test': '{}/val2014/mscoco_val_text_caption.txt'.format(root),\
+              'image_feat_file_train': '{}/train2014/mscoco_train_res34_embed512dim.npz'.format(root),\
+              'image_feat_file_test': '{}/val2014/mscoco_val_res34_embed512dim.npz'.format(root),\
+              } # TODO
       json.dump(path, f)
   
   trg_feat_file_train = path['text_caption_file_train']

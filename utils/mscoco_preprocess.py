@@ -838,7 +838,7 @@ class MSCOCO_Preprocessor():
       f.write('\n'.join(phone_sents))   
   
   def extract_phone_caption_from_karpathy_split(self, speech_api_train_file, speech_api_val_file, karpathy_json, out_file_prefix, max_vocab_size=2000): # XXX
-    phone_sents = []
+    phone_sents, text_sents = [], []
     speech_api_train = SpeechCoco(speech_api_train_file)
     speech_api_val = SpeechCoco(speech_api_val_file)
 
@@ -894,20 +894,39 @@ class MSCOCO_Preprocessor():
       for acapt in [audio_caption_info[0]]:
         sent_info = acapt.timecode.parse()
         phone_sent = []
+        text_sent = []
         for word_info in sent_info:
           w = self.lemmatizer.lemmatize(word_info['value'].lower())          
           if w in self.stopwords or w in STOP or w[0] == '_' or not w in top_words:
             continue
+          text_sent.append(w)
           for syl in word_info['syllable']:
             for phone_info in syl['phoneme']:
               if is_nonspeech(phone_info['value']):
                 continue     
               phone_sent.append(phone_info['value'])
         phone_sents.append(' '.join(phone_sent))
+        text_sents.append(' '.join(text_sent))
+
+    with open(out_file_prefix+'.txt', 'w') as f_phn,\
+         open(out_file_prefix+'_text.txt', 'w') as f_txt:
+      f_phn.write('\n'.join(phone_sents))   
+      f_txt.write('\n'.join(text_sents)) 
     
-    with open(out_file_prefix+'.txt', 'w') as f:
-      f.write('\n'.join(phone_sents))   
- 
+    with open(out_file_prefix+'_train.txt', 'w') as f_phn_tr,\
+         open(out_file_prefix+'_text_train.txt', 'w') as f_txt_tr,\
+         open(out_file_prefix+'_test.txt', 'w') as f_phn_tx,\
+         open(out_file_prefix+'_text_test.txt', 'w') as f_txt_tx:
+      phone_sents_tr = [phone_sent for i, phone_sent in zip(splits, phone_sents) if i_str == '0']
+      text_sents_tr = [text_sent for i, text_sent in zip(splits, text_sents) if i_str == '0']
+      phone_sents_tx = [phone_sent for i, phone_sent in zip(splits, phone_sents) if i_str == '1']
+      text_sents_tx = [text_sent for i, text_sent in zip(splits, text_sents) if i_str == '1']
+
+      f_phn_tr.write('\n'.join(phone_sents_tr))   
+      f_txt_tr.write('\n'.join(text_sents_tr)) 
+      f_phn_tx.write('\n'.join(phone_sents_tx))   
+      f_txt_tx.write('\n'.join(text_sents_tx))  
+
   def expand_person_class(self, concept_caption_file, phone_caption_file, expanded_concept_caption_file='mscoco_concept_captions_expanded.txt'): # TODO
     with open(concept_caption_file, 'r') as f_c,\
          open(phone_caption_file, 'r') as f_p,\
