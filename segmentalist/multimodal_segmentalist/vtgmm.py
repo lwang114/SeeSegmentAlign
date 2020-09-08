@@ -20,7 +20,7 @@ class VisualTreeGMM(object):
   K : int
       The number of mixture components
   """
-  def __init__(self, X, prior, K, assignments='kmeans', lr=0.1, vec_ids=None):
+  def __init__(self, X, prior, K, class2id, assignments='kmeans', lr=0.1, vec_ids=None):
     self.prior = prior
     self.K_max = K
     self.D = X.shape[-1]
@@ -29,7 +29,7 @@ class VisualTreeGMM(object):
     self.X = X
     self.vec_ids = vec_ids 
     self.W = prior.W
-    self.class2id = prior.class2id
+    self.class2id = class2id
     self.setup_components()    
 
   def setup_components(self, assignments='kmeans'): 
@@ -111,9 +111,6 @@ class VisualTreeGMM(object):
     self.means[k2] = self.means[k1]
     self.means[k1] = tmp
 
-  # TODO
-  def assign(self):
-  
 #-----------------------------------------------------------------------------#
 #                     VISUAL TREE GAUSSIAN PRIOR CLASS                        #
 #-----------------------------------------------------------------------------#
@@ -121,33 +118,7 @@ class VisualTreePrior:
   """
   The prior parameters for a visual tree GMM
   """
-  def __init__(self, var, mu_0, var_0, classifier_weights_npz, class2id_file):
+  def __init__(self, var, mu_0, var_0, classifier_weight_npz):
     self.var = var
     self.mu_0 = mu_0
-    self.W = np.load(classifier_weights_npz)
-    with open(class2id_file, 'r') as f:
-      self.class2id = json.load(f)
-
-if __name__ == '__main__':
-  def cluster_f1(pred, gold):
-    n = np.max(pred)
-    confusion_mats = np.zeros((n+1, n+1))
-    for p, g in zip(list(pred), list(gold)):
-      confusion_mats[p, g] += 1
-    
-    rec = np.mean(np.max(confusion_mats, axis=0) / np.maximum(np.sum(confusion_mats, axis=0), EPS))
-    prec = np.mean(np.max(confusion_mats, axis=1) / np.maximum(np.sum(confusion_mats, axis=1), EPS))
-    return 2 * rec * prec / np.maximum(rec + prec, EPS), rec, prec 
-  
-  # TODO 
-  datasetpath = 
-  exp_dir = 
-  class2id_file = 
-  image_feature_file = datasetpath + 'mscoco_imbalanced_res34_embed512dim.npz'
-  classifier_weights_npz = exp_dir + 'classifier_weights.npz'
-   
-  X_npz = np.load(image_feature_file)
-  X = np.concatenate([X[k] for k in sorted(X_npz, key=lambda x:int(x.split('_')[-1]))], axis=0)
-  vm_prior = VisualTreePrior(0., 0., 0., classifier_weights_npz, class2id_file)
-  model = VisualTreeGMM(X, vm_prior, 65)
-
+    self.W = np.load(classifier_weight_npz) 
