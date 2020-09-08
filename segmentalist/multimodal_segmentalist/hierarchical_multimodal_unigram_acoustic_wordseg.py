@@ -1,8 +1,7 @@
 """
-Author: Liming Wang
-Contact: lwang114@illinois.edu
-Date: 2020
-Note: Based on Herman Kamper's code in segmentalist
+Author: Herman Kamper
+Contact: kamperh@gmail.com
+Date: 2014-2016
 """
 
 import logging
@@ -68,7 +67,11 @@ class HierarchicalMultimodalUnigramAcousticWordseg(object):
         The matrices of embeddings for every image region
     v_vec_ids_dict : dict of vector of int
         For every image region, the vector IDs
-    aligner_class : e.g. `MixtureAligner`
+    aligner_clss : e.g. `MixtureAligner`
+    seed_boundaries_dict : dict of list of tuple
+        Every tuple is the start (inclusive) and end (exclusive) embedding
+        slice index of a seed token, giving its boundaries. If not given, no
+        seeding is used.
     seed_assignments_dict : dict of list of int
         Every int is a cluster assignment for the corresponding seed token in
         `seed_boundaries_dict`. If not given, no seeding is used.

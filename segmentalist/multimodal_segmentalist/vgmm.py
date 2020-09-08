@@ -90,7 +90,7 @@ class VGMM(object):
     assert len(indices) == ws.shape[0]
     vs = self.X[indices]
     self.means += self.lr * np.dot(np.transpose(ws), vs)
-   
+    
   def swap_clusters(self, k1, k2):
     tmp = deepcopy(self.means[k2])
     self.means[k2] = self.means[k1]
