@@ -2,7 +2,6 @@ import numpy as np
 from sklearn.cluster import KMeans
 from scipy.special import logsumexp
 from copy import deepcopy
-from gaussian_components_fixedvar import *
 
 class RegionVGMM(object):
   """
@@ -13,39 +12,23 @@ class RegionVGMM(object):
   K : int
       The number of mixture components
   """
-  def __init__(self, X, K, assignments='kmeans', lr=0.1, vec_ids=None):
+  def __init__(self, X, K, assignments='kmeans', var=1., lr=0.1, vec_ids=None):
     self.K_max = K
     self.D = X.shape[-1]
     self.means = np.zeros((K, self.D))
     self.lr = lr
     self.X = X
+    self.var = var
     self.vec_ids = vec_ids # TODO Make this nonempty by default 
     self.setup_components()    
 
   def setup_components(self, assignments='kmeans'): 
-    if isinstance(assignments, basestring) and assignments == 'kmeans':
+    if isinstance(assignments, str) and assignments == 'kmeans':
       self.means = KMeans(n_clusters=self.K_max).fit(self.X).cluster_centers_ 
     else:
       raise NotImplementedError
  
-  # TODO Change the definition of i to index of image sequence 
-  def prob_z_i(self, i):
-    """
-    Parameters
-    ----------
-    i : int
-        index of the image feature vector
-    
-    Returns
-    -------
-    prob_z : length K vector 
-             [p(z_i=k|y_i) for k in range(K)]
-    """
-    prob_z = - np.sum((self.X[i] - self.means) ** 2, axis=1) / self.prior.var
-    prob_z = np.exp(prob_z - logsumexp(prob_z))
-    return prob_z
-
-  def log_prob_z(self, i):
+  def log_prob_z(self, i, normalize=True):
     """
     Parameters
     ----------
@@ -59,13 +42,14 @@ class RegionVGMM(object):
     """
     log_prob_zs = []
     for j in self.vec_ids[i]:
-      log_prob_z = self.log_prob_z_given_X(self.X[j]) 
+      log_prob_z = self.log_prob_z_given_X(self.X[j], normalize=normalize) 
       log_prob_zs.append(log_prob_z)
     return np.asarray(log_prob_zs)
 
-  def log_prob_z_given_X(self, X):
-    log_prob_z = - np.sum((X - self.means) ** 2, axis=1) / self.prior.var
-    log_prob_z -= logsumexp(log_prob_z)
+  def log_prob_z_given_X(self, X, normalize=True):
+    log_prob_z = - np.sum((X - self.means) ** 2, axis=1) / self.var
+    if normalize:
+      log_prob_z -= logsumexp(log_prob_z)
     return log_prob_z
 
   def log_post_pred(self, i):
@@ -83,7 +67,7 @@ class RegionVGMM(object):
     L = len(self.vec_ids[i])
     log_post_preds = []
     for j in self.vec_ids[i]:    
-      log_post_pred_j = - np.sum((self.X[j] - self.means) ** 2, axis=1) / self.prior.var
+      log_post_pred_j = - np.sum((self.X[j] - self.means) ** 2, axis=1) / self.var
       log_post_pred_j -= logsumexp(log_post_pred_j)
       log_post_preds.append(log_post_pred_j)
    
@@ -97,4 +81,3 @@ class RegionVGMM(object):
   def swap_clusters(self, k1, k2):
     tmp = deepcopy(self.means[k2])
     self.means[k2] = self.means[k1]
- 
