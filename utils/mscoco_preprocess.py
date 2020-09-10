@@ -794,6 +794,7 @@ class MSCOCO_Preprocessor():
   
   def phone_caption_json_to_text(self, json_file, out_file_prefix, allow_repeated_concepts=False, max_vocab_size=2000):
     phone_sents = []
+    word_sents = []
     with open(json_file, 'r') as f:
       pair_info = json.load(f)
     
@@ -823,19 +824,24 @@ class MSCOCO_Preprocessor():
       phone_align_info = [pair['phone_alignments'][0]]
       word_align_info = [pair['word_alignments'][0]]
       phone_sent = []  
+      word_sent = []
       for sent_phone_info, sent_word_info in zip(phone_align_info, word_align_info): 
         for phone_info, word_info in zip(sent_phone_info, sent_word_info):
           w = self.lemmatizer.lemmatize(word_info[0].lower()) 
           if w in self.stopwords or w in STOP or w[0] == '_' or w not in top_words:
             continue 
+          word_sent.append(w)
           for seg_info in phone_info:
             if seg_info[0] != '#' and seg_info[0][0] != '_':
               phone_sent.append(seg_info[0])
-        print(phone_sent)
+        print(word_sent)
+        word_sents.append(' '.join(word_sent))
         phone_sents.append(' '.join(phone_sent))
       
-    with open(out_file_prefix+'.txt', 'w') as f:
-      f.write('\n'.join(phone_sents))   
+    with open(out_file_prefix+'.txt', 'w') as f_phn,
+         open(out_file_prefix+'_text.txt', 'w') as f_txt:
+      f_txt.write('\n'.join(word_sents))
+      f_phn.write('\n'.join(phone_sents))
   
   def extract_phone_caption_from_karpathy_split(self, speech_api_train_file, speech_api_val_file, karpathy_json, out_file_prefix, max_vocab_size=2000): # XXX
     phone_sents, text_sents = [], []
