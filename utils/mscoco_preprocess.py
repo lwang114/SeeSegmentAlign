@@ -803,7 +803,7 @@ class MSCOCO_Preprocessor():
       for sent_info in pair['word_alignments']:
         for word_info in sent_info:
           w = self.lemmatizer.lemmatize(word_info[0].lower()) 
-          if w in self.stopwords or w in STOP or w[0] == '_' or w[0]:
+          if w in self.stopwords or w in STOP or w[0] == '_':
             continue
           if not w in word_freqs:
             word_freqs[w] = 1
