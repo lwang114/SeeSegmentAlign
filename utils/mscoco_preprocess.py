@@ -838,7 +838,7 @@ class MSCOCO_Preprocessor():
         word_sents.append(' '.join(word_sent))
         phone_sents.append(' '.join(phone_sent))
       
-    with open(out_file_prefix+'.txt', 'w') as f_phn,
+    with open(out_file_prefix+'.txt', 'w') as f_phn,\
          open(out_file_prefix+'_text.txt', 'w') as f_txt:
       f_txt.write('\n'.join(word_sents))
       f_phn.write('\n'.join(phone_sents))
@@ -1039,14 +1039,14 @@ if __name__ == '__main__':
     # imgid2bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_imgid2bbox.json'
     # preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', dataset_type='synthetic', imgid2bbox_file=imgid2bbox_file)
   if 6 in tasks:
-    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json'
-    top_words_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_phone_caption_top_words.txt'
-    preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption', top_words_file=top_words_file)
+    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json' 
+    preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption')
   if 7 in tasks:
     speech_api_train_file = '/home/lwang114/data/mscoco/audio/train2014/train_2014.sqlite3'
     speech_api_val_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
+    top_words_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_phone_caption_top_words.txt'
     json_file = '../data/dataset_coco.json'
-    preproc.extract_phone_caption_from_karpathy_split(speech_api_train_file, speech_api_val_file, json_file, out_file_prefix='mscoco_phone_caption')
+    preproc.extract_phone_caption_from_karpathy_split(speech_api_train_file, speech_api_val_file, json_file, out_file_prefix='mscoco_phone_caption', top_words_file=top_words_file)
   if 8 in tasks:
     concept_caption_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_single_image_captions.txt'
     phone_caption_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_single_phone_captions.txt'
