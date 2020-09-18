@@ -792,6 +792,21 @@ class MSCOCO_Preprocessor():
     with open(out_file_prefix+'_concept_captions.txt', 'w') as f:
       f.write('\n'.join(concepts_all))
   
+  def include_whole_image(self, imgid2bbox_file, root_path, out_file):
+    img_id = ''
+    with open(imgid2bbox_file, 'r') as f_in,\
+         open(out_file, 'w') as f_out:
+      for line in f_in: 
+        cur_img_id = line.split()[0]
+        print(cur_img_id)
+        if cur_img_id != img_id:
+          img = np.array(Image.open('{}/{}.jpg'.format(root_path, cur_img_id)))
+          f_out.write('{} scene {} {} {} {}\n'.format(cur_img_id, 0, 0, img.shape[1], img.shape[0]))
+          f_out.write(line)
+          img_id = cur_img_id
+        else:
+          f_out.write(line) 
+
   def phone_caption_json_to_text(self, json_file, out_file_prefix, allow_repeated_concepts=False, max_vocab_size=2000):
     phone_sents = []
     word_sents = []
@@ -1034,13 +1049,15 @@ if __name__ == '__main__':
     preproc.json_to_text_gclda(data_info_file, text_file_prefix='../data/mscoco/gclda_20k')
   if 5 in tasks:
     json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json'
-    preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes')
+    preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', include_whole_image=True)
     # json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_concept_info_power_law_1.json'
     # imgid2bbox_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_subset_1300k_imgid2bbox.json'
     # preproc.image_bboxes_json_to_text(json_file, out_file_prefix='train_mscoco_label_bboxes', dataset_type='synthetic', imgid2bbox_file=imgid2bbox_file)
   if 6 in tasks:
-    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json' 
-    preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption')
+    # json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/train_mscoco_info_text_image.json' 
+    # preproc.phone_caption_json_to_text(json_file, out_file_prefix='train_mscoco_phone_caption')
+    json_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014/val_mscoco_info_text_image.json' 
+    preproc.phone_caption_json_to_text(json_file, out_file_prefix='val_mscoco_phone_caption')
   if 7 in tasks:
     speech_api_train_file = '/home/lwang114/data/mscoco/audio/train2014/train_2014.sqlite3'
     speech_api_val_file = '/home/lwang114/data/mscoco/audio/val2014/val_2014.sqlite3'
@@ -1052,3 +1069,8 @@ if __name__ == '__main__':
     phone_caption_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/mscoco_train_single_phone_captions.txt'
     out_file = 'mscoco_train_image_captions_expanded.txt'
     preproc.expand_person_class(concept_caption_file, phone_caption_file, out_file)
+  if 9 in tasks:
+    root_path = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/val2014'
+    bbox_file = '{}/mscoco_val_bboxes.txt'.format(root_path)
+    preproc.include_whole_image(bbox_file, '{}/imgs/val2014'.format(root_path), out_file='mscoco_val_bboxes_with_whole_image.txt')
+
