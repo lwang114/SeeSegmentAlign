@@ -247,13 +247,13 @@ if 1 in tasks:
     test_label_file = '../data/mscoco/mscoco_subset_power_law_bboxes.txt'
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform) 
   elif args.dataset == 'mscoco_train':
-    data_path = '/home/lwang114/data/mscoco/train2014/'
+    data_path = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/train2014/'
     # args.class2id_file = 'mscoco_class2id.json'
     # with open(args.class2id_file, 'r') as f:
     #   class2idx = json.load(f)
     # args.n_class = len(class2idx.keys())
     print(args.n_class)
-    test_label_file = '../data/mscoco_train_bboxes.txt'
+    test_label_file = '{}/mscoco_train_bboxes_with_whole_image.txt'.format(data_path)
     testset = MSCOCORegionDataset(data_path, test_label_file, class2idx_file=args.class2id_file, transform=transform) 
   elif args.dataset == 'mscoco_imbalanced':
     test_label_file = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco_synthetic_imbalanced/mscoco_imbalanced_label_bboxes.txt'

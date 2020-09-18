@@ -27,6 +27,7 @@ class Flickr_Preprocessor(object):
     self.stopwords = stopwords.words('english')
     self.ic = wordnet_ic.ic('ic-semcor.dat')
     self.concept_class_file = concept_class_file
+    '''
     with open(self.concept_class_file, 'r') as f:
       self.concept_names = f.read().strip().split('\n')
       self.concept2ids = {c:i for i, c in enumerate(self.concept_names)}
@@ -36,6 +37,7 @@ class Flickr_Preprocessor(object):
 
     self.word2concept = {}
     self.concept2word = {c:[] for c in self.concept_names}
+    '''
 
   # TODO Process the phone segment file 
   def extract_info(self, out_file_prefix='flickr30k_info', word2concept_file=None, split_file=None, max_vocab_size=2000):
@@ -378,7 +380,63 @@ class Flickr_Preprocessor(object):
           
         fw.write(' '.join(word_caption)+'\n')
         fp.write(' '.join(phone_caption)+'\n')   
-   
+
+  def filter_captions(self, caption_file, out_file='flickr30k_captions_filtered', split=False, topk_vocab=2000, word_freq_file='word_frequency.json', g2p_file=None): # TODO
+    if g2p_file:
+      with open(g2p_file, 'r') as f_g2p:
+        g2p = json.load(f)
+
+    word_captions = []
+    phone_captions = []
+    word2freq = {}
+    if not os.path.isfile(word_freq_file):
+      with open(caption_file, 'r') as fc,\
+           open(word_freq_file, 'w') as f_wc:
+        for ex, line in enumerate(fc):
+          for word in line.strip().split()[1:]:
+            word = self.lemmatizer.lemmatize(word.lower())
+            if not word in word2freq:
+              word2freq[word] = 1
+            else:
+              word2freq[word] += 1
+        json.dump(word2freq, f_wc, indent=4, sort_keys=True)
+    else:
+      with open(word_freq_file, 'r') as f:
+        word2freq = json.load(f)
+
+    top_words = sorted(word2freq, key=lambda x:word2freq[x], reverse=True)[:topk_vocab]
+    with open('{}_word_to_idx.json'.format(out_file), 'w') as f:
+      json.dump({word:i for i, word in enumerate(top_words)}, f, indent=4, sort_keys=True)
+
+    with open(caption_file, 'r') as fc,\
+         open(out_file+'_words.txt', 'w') as fw,\
+         open(out_file+'_phones.txt', 'w') as fp:
+      for ex, line in enumerate(fc):
+        print('example {}'.format(ex))
+        capt_id = line.split()[0]
+        raw_caption = line.split()[1:]
+        word_caption = []
+        phone_caption = []
+        for word in raw_caption:
+          word = self.lemmatizer.lemmatize(word.lower())
+          if word in self.stopwords or word in STOP or word in PUNCT:
+            continue
+          if not word in top_words: continue  
+          word_caption.append(word)   
+          if g2p_file:          
+            phone_caption += [phn.encode('utf-8') for phn in g2p[word]]
+        
+        if g2p_file:
+          phone_captions.append(' '.join(phone_caption)) 
+      
+        print(word_caption)
+        word_captions.append(' '.join(word_caption))
+      
+      fw.write('\n'.join(word_captions))
+      if g2p_file:
+        fp.write('\n'.join(phone_captions))   
+      
+
   def create_concept_captions(self, data_file, word2concept_file, word_freq_file=None, out_file='flickr30k_concepts'):
       with open(data_file, 'r') as f:
         data_info = json.load(f)
@@ -529,9 +587,16 @@ def compute_word_similarity(word_senses1, word_senses2, sim_type='wup+res', pos=
   return max(scores)
 
 if __name__ == '__main__':
-  tasks = [7] 
-  preproc = Flickr_Preprocessor('../data/flickr30k/flickr30k_phrases_bboxes.txt', '../data/flickr30k/flickr30k_phrase_types.txt', None, concept_class_file='../data/flickr30k/flickr_classnames_original.txt')
-  data_file = '../data/flickr30k/flickr30k_info.json'
+  import argparse
+  parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('--task', '-t', type=int, help='Task number')
+  args = parser.parse_args()
+  tasks = [args.task] 
+
+  root = '/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k/'
+  preproc = Flickr_Preprocessor('{}/flickr30k_phrases_bboxes.txt'.format(root), '{}/flickr30k_phrase_types.txt'.format(root), None, concept_class_file='{}/flickr_classnames_original.txt'.format(root))
+  data_file = '{}/flickr30k_info.json'.format(root)
+  caption_file = '{}/flickr30k_text_captions.txt'.format(root)
 
   if 0 in tasks:
     preproc.extract_word_to_concept_map()
@@ -540,7 +605,7 @@ if __name__ == '__main__':
   if 2 in tasks:
     preproc.train_test_split(split_file='../data/flickr30k/flickr8k_test.txt')
   if 3 in tasks:
-    preproc.create_captions(data_file, split=True, word_freq_file='../data/flickr30k/flickr30k_info_word_frequencies.json', g2p_file='../data/flickr30k/flickr30k_word_pronunciations.json')
+    preproc.create_captions(data_file, split=True, word_freq_file='{}/flickr30k_word_frequencies.json'.format(root), g2p_file='../data/flickr30k/flickr30k_word_pronunciations.json')
   if 4 in tasks:
     preproc.create_gold_alignment(data_file)
   if 5 in tasks:
@@ -549,3 +614,5 @@ if __name__ == '__main__':
     preproc.create_concept_captions(self, data_file, word2concept_file, word_freq_file=None)
   if 7 in tasks:
     preproc.extract_word_to_image_map()
+  if 8 in tasks:
+    preproc.filter_captions(caption_file, word_freq_file='{}/flickr30k_word_frequencies.json'.format(root))
