@@ -13,14 +13,17 @@ class ContinuousMixtureAligner(object):
   """An alignment model based on Brown et. al., 1993. capable of modeling continuous bilingual sentences"""
   def __init__(self, source_features_train, target_features_train, configs):
     self.Ks = configs.get('n_src_vocab', 80)
-    self.Kt = configs.get('n_trg_vocab', int(np.max(target_features_train))+1)
-    var = configs.get('var', 100.)
+    self.Kt = configs.get('n_trg_vocab', 2001)
+    self.use_null = configs.get('use_null', True)
+    var = configs.get('var', 10.)
     logger.info('n_src_vocab={}, n_trg_vocab={}'.format(self.Ks, self.Kt))
     self.alpha = configs.get('alpha', 0.)
 
     self.src_vec_ids_train = []
     start_index = 0
-    for src_feat in source_features_train:
+    for ex, src_feat in enumerate(source_features_train):
+      if self.use_null:
+        target_features_train[ex] = [self.Kt-1]+target_features_train[ex]
       src_vec_ids = []
       for t in range(len(src_feat)):
         src_vec_ids.append(start_index+t)
@@ -61,7 +64,9 @@ class ContinuousMixtureAligner(object):
   def update_components(self):
     means_new = np.zeros(self.src_model.means.shape)
     counts = np.zeros((self.Ks,))
-    for i, trg_feat in enumerate(self.trg_feats):
+    for i, (trg_feat, src_feat) in enumerate(zip(self.trg_feats, self.src_feats)):
+      if len(trg_feat) == 0 or len(self.src_feats[i]) == 0:
+        continue 
       trg_sent = trg_feat
       prob_f_given_y = self.prob_s_given_tsent(trg_sent)
       prob_f_given_x = np.exp(self.src_model.log_prob_z(i))
@@ -92,7 +97,7 @@ class ContinuousMixtureAligner(object):
     V_trg = to_one_hot(trg_sent, self.Kt)
     return np.mean(V_trg @ self.P_ts, axis=0) 
     
-  def align_sents(self, source_feats_test, target_feats_test): 
+  def align_sents(self, source_feats_test, target_feats_test, score_type='max'): 
     alignments = []
     scores = []
     for src_feat, trg_feat in zip(source_feats_test, target_feats_test):
@@ -101,7 +106,12 @@ class ContinuousMixtureAligner(object):
       V_trg = to_one_hot(trg_sent, self.Kt)
       V_src = to_one_hot(src_sent, self.Ks)
       P_a = V_trg @ self.P_ts @ V_src.T
-      scores.append(np.prod(np.max(P_a, axis=0)))
+      if score_type == 'max':
+        scores.append(np.prod(np.max(P_a, axis=0)))
+      elif score_type == 'mean':
+        scores.append(np.prod(np.mean(P_a, axis=0)))
+      else:
+        raise ValueError('Score type not implemented')
       alignments.append(np.argmax(P_a, axis=0)) 
     return alignments, np.asarray(scores)
 
@@ -109,10 +119,14 @@ class ContinuousMixtureAligner(object):
     n = len(source_features_test)
     scores = np.zeros((n, n))
     for i_utt in range(n):
-      src_feats = [source_features_test[i_utt] for _ in range(n)] 
-      trg_feats = [target_features_test[j_utt] for j_utt in range(n)]
+      if self.use_null:
+        src_feats = [source_features_test[i_utt] for _ in range(n)] 
+        trg_feats = [[self.Kt - 1] + target_features_test[j_utt] for j_utt in range(n)]
+      else:
+        src_feats = [source_features_test[i_utt] for _ in range(n)] 
+        trg_feats = [target_features_test[j_utt] for j_utt in range(n)]
        
-      _, scores[i_utt] = self.align_sents(src_feats, trg_feats) # TODO Use the likelihood instead
+      _, scores[i_utt] = self.align_sents(src_feats, trg_feats, score_type='max') 
 
     I_kbest = np.argsort(-scores, axis=1)[:, :kbest]
     P_kbest = np.argsort(-scores, axis=0)[:kbest]
@@ -238,14 +252,66 @@ def load_mscoco(path):
        open(trg_feat_file_test, 'r') as f_tx:
       trg_str_train = f_tr.read().strip().split('\n')
       trg_str_test = f_tx.read().strip().split('\n')
-      trg_feats_train = [[word2idx[tw] for tw in trg_sent.split()] for trg_sent in trg_str_train[:30]] # XXX
-      trg_feats_test = [[word2idx[tw] for tw in trg_sent.split()] for trg_sent in trg_str_test[:30]] # XXX
+      trg_feats_train = [[word2idx[tw] for tw in trg_sent.split()] for trg_sent in trg_str_train] # XXX
+      trg_feats_test = [[word2idx[tw] for tw in trg_sent.split() if tw in word2idx] for trg_sent in trg_str_test] # XXX
   
   src_feat_npz_train = np.load(src_feat_file_train)
   src_feat_npz_test = np.load(src_feat_file_test)
-  src_feats_train = [src_feat_npz_train[k] for k in sorted(src_feat_npz_train, key=lambda x:int(x.split('_')[-1]))[:30]] # XXX
-  src_feats_test = [src_feat_npz_test[k] for k in sorted(src_feat_npz_test, key=lambda x:int(x.split('_')[-1]))[:30]] # XXX
+  print('Number of training target sentences={}, number of training source sentences={}'.format(len(trg_feats_train), len(src_feat_npz_train)))
+  print('Number of test target sentences={}, number of test source sentences={}'.format(len(trg_feats_test), len(src_feat_npz_test)))
 
+  src_feats_train = [src_feat_npz_train[k] for k in sorted(src_feat_npz_train, key=lambda x:int(x.split('_')[-1]))] # XXX
+  if len(src_feat_npz_test) > 1000:
+    with open(retrieval_split, 'r') as f: 
+      test_indices = [i for i, line in enumerate(f.read().strip().split('\n')) if line == '1']
+      src_feats_test = [src_feat_npz_test[k] for k in sorted(src_feat_npz_test, key=lambda x:int(x.split('_')[-1])) if int(k.split('_')[-1]) in test_indices] # XXX
+  else:
+    src_feats_test = [src_feat_npz_test[k] for k in sorted(src_feat_npz_test, key=lambda x:int(x.split('_')[-1]))] # XXX
+
+  return src_feats_train, trg_feats_train, src_feats_test, trg_feats_test
+
+def load_flickr(path):
+  trg_feat_file = path['text_caption_file']
+  src_feat_file = path['image_feat_file']
+  test_image_ids_file = path['test_image_ids_file']
+  word_to_idx_file = path['word_to_idx_file']
+  with open(word_to_idx_file, 'r') as f:
+    word2idx = json.load(f)
+
+  with open(test_image_ids_file, 'r') as f:
+    test_image_ids = ['_'.join(line.split('_')[0:2]) for ex, line in enumerate(f)] # XXX
+
+  # Load the captions
+  with open(trg_feat_file, 'r') as f:
+    trg_feats = []
+    for ex, line in enumerate(f):
+      # if ex >= 100: # XXX
+      #   break
+      trg_feats.append(line.split())
+
+  # Load the image features
+  src_feat_npz = np.load(src_feat_file)
+  image_ids = sorted(src_feat_npz, key=lambda x:int(x.split('_')[-1])) # XXX
+
+  # Split the features into train and test sets
+  src_feats_train = []
+  src_feats_test = []
+  trg_feats_train = []
+  trg_feats_test = []
+  for ex, img_id in enumerate(image_ids):
+    if img_id.split('.')[0] in test_image_ids:
+      if img_id.split('_')[2] == '1': # Select one caption per image for the test set (Pick the first caption for each image)
+        print(img_id, img_id.split('_')[2])
+        cur_trg_feat = [word2idx[w] for w in trg_feats[ex]] 
+        trg_feats_test.append(cur_trg_feat)
+        src_feats_test.append(src_feat_npz[img_id])
+    else:
+      cur_trg_feat = [word2idx[w] for w in trg_feats[ex]] 
+      trg_feats_train.append(cur_trg_feat)
+      src_feats_train.append(src_feat_npz[img_id])
+
+  print('Number of training target sentences={}, number of training source sentences={}'.format(len(trg_feats_train), len(src_feats_train)))
+  print('Number of test target sentences={}, number of test source sentences={}'.format(len(trg_feats_test), len(src_feats_test)))
   return src_feats_train, trg_feats_train, src_feats_test, trg_feats_test
 
 if __name__ == '__main__':
@@ -253,7 +319,7 @@ if __name__ == '__main__':
   
   parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('--exp_dir', '-e', type=str, default='./', help='Experimental directory')
-  parser.add_argument('--dataset', '-d', type=str, default='mscoco', choices={'mscoco', 'mscoco20k'}, help='Dataset used')
+  parser.add_argument('--dataset', '-d', type=str, default='mscoco', choices={'mscoco', 'mscoco20k', 'flickr30k'}, help='Dataset used')
   args = parser.parse_args()
   if not os.path.isdir(args.exp_dir):
     os.mkdir(args.exp_dir)
@@ -267,14 +333,15 @@ if __name__ == '__main__':
       if args.dataset == 'mscoco':
         root = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/'
         path = {'root': root,\
-              'text_caption_file_train': '{}/train2014/mscoco_train_text_caption.txt'.format(root),\
-              'text_caption_file_test': '{}/val2014/mscoco_val_text_caption.txt'.format(root),\
-              'text_caption_file_test_retrieval': '{}/val2014/mscoco_val_text_caption_1k.txt'.format(root),\
+              'text_caption_file_train': '{}/train2014/mscoco_train_text_captions.txt'.format(root),\
+              'text_caption_file_test': '{}/val2014/mscoco_val_text_captions.txt'.format(root),\
+              'text_caption_file_test_retrieval': '{}/val2014/mscoco_val_text_captions_1k.txt'.format(root),\
               'image_feat_file_train': '{}/train2014/mscoco_train_res34_embed512dim.npz'.format(root),\
               'image_feat_file_test': '{}/val2014/mscoco_val_res34_embed512dim.npz'.format(root),\
               'image_feat_file_test_retrieval': '{}/val2014/mscoco_val_res34_embed512dim_1k.npz'.format(root),\
               'retrieval_split_file': '{}/val2014/mscoco_val_split.txt'.format(root),\
-              'top_word_file': '{}/mscoco_train_phone_caption_top_words.txt'.format(root)
+              'word_to_idx_file': '{}/word2idx.json'.format(root),\
+              'top_word_file': '{}/train2014/mscoco_train_phone_caption_top_words.txt'.format(root)
               }
       elif args.dataset == 'mscoco20k':
         root = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
@@ -290,10 +357,26 @@ if __name__ == '__main__':
                 'word_to_idx_file': '{}/concept2idx_65class.json'.format(root),
                 'top_word_file': '{}/concept2idx_65class.json'.format(root)
                 }
+      elif args.dataset == 'flickr30k':
+        root = '/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k/'
+        path = {'root': root,\
+                'text_caption_file': '{}/flickr30k_text_captions_filtered.txt'.format(root),\
+                'image_feat_file': '{}/flickr30k_res34.npz'.format(root),\
+                'test_image_ids_file': '{}/flickr8k_test.txt'.format(root),\
+                'word_to_idx_file': '{}/flickr30k_word_to_idx_filtered.json'.format(root)
+                }
       json.dump(path, f, indent=4, sort_keys=True)
-   
-  src_feats_train, trg_feats_train, src_feats_test, trg_feats_test = load_mscoco(path)
-  aligner = ContinuousMixtureAligner(src_feats_train, trg_feats_train, configs={'n_src_vocab': 65})
+
+  if args.dataset == 'mscoco' or args.dataset == 'mscoco20k':       
+    src_feats_train, trg_feats_train, src_feats_test, trg_feats_test = load_mscoco(path)
+    Kt = 2001
+    Ks = 80
+  else:
+    src_feats_train, trg_feats_train, src_feats_test, trg_feats_test = load_flickr(path)
+    Kt = 2001
+    Ks = 600
+  aligner = ContinuousMixtureAligner(src_feats_train, trg_feats_train, configs={'n_trg_vocab':Kt, 'n_src_vocab':Ks})
   aligner.trainEM(20, '{}/mixture'.format(args.exp_dir))
   aligner.print_alignment('{}/alignment.json'.format(args.exp_dir))
+  # aligner.retrieve(src_feats_train, trg_feats_train, '{}/retrieval'.format(args.exp_dir))
   aligner.retrieve(src_feats_test, trg_feats_test, '{}/retrieval'.format(args.exp_dir))
