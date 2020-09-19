@@ -9,8 +9,8 @@ import json
 import os
 
 def train(image_model, train_loader, test_loader, args, device_id=0): 
-  if torch.cuda.is_available():
-    image_model = image_model.cuda()
+  # XXX if torch.cuda.is_available():
+  #   image_model = image_model.cuda()
   
   # Set up the optimizer
   # XXX
@@ -127,7 +127,7 @@ def validate(image_model, test_loader, args):
             embed2_all[feat_id] = embeds2[i_b].cpu()
         elif args.image_model == 'res34':
           embeds1, outputs = image_model(images, save_features=args.save_features)
-          print(i, embeds1.size())
+          # print(i, embeds1.size())
           for i_b in range(embeds1.size()[0]):
             feat_id = 'arr_'+str(i * args.batch_size + i_b)
             embed1_all[feat_id] = embeds1[i_b].cpu()    

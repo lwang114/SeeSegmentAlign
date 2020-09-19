@@ -42,17 +42,17 @@ class FlickrRegionDataset(Dataset):
     x, y, w, h = self.bboxes[idx] 
     x, y, w, h = int(x), int(y), np.maximum(int(w), 1), np.maximum(int(h), 1)
     image = Image.open(self.image_root_path + self.image_keys[idx]).convert('RGB')
+    # print(np.asarray(image).mean())
     if len(np.array(image).shape) == 2:
       print('Wrong shape')
-      image = np.tile(np.array(image)[:, :, np.newaxis], (1, 1, 3))  
+      image = np.tile(np.array(image)[:, :, np.newaxis], (1, 1, 3))
       image = Image.fromarray(image)
     
     region = image.crop(box=(x, y, x + w, y + h))
-    #print(x, y, w, h, region.shape)
-
+    
     if self.transform:
       region = self.transform(region)
-    
-    #print(region.mean()) 
+
+    # print(x, y, w, h, region.mean())
     label = self.class2idx.get(self.class_labels[idx], 0)
     return region, label
