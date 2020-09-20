@@ -24,7 +24,9 @@ class RegionVGMM(object):
 
   def setup_components(self, assignments='kmeans'): 
     if isinstance(assignments, str) and assignments == 'kmeans':
-      self.means = KMeans(n_clusters=self.K_max).fit(self.X).cluster_centers_ 
+      keep = [i_ex*75+i_region for i_ex in range(int(self.X.shape[0]/75)) for i_region in range(15)] # Only select a subset of examples for KMeans clustering
+      keep = np.asarray(keep)
+      self.means = KMeans(n_clusters=self.K_max).fit(self.X[keep]).cluster_centers_ 
     else:
       raise NotImplementedError
  
