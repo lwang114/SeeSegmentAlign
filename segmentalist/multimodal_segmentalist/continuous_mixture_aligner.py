@@ -15,7 +15,7 @@ class ContinuousMixtureAligner(object):
     self.Ks = configs.get('n_src_vocab', 80)
     self.Kt = configs.get('n_trg_vocab', 2001)
     self.use_null = configs.get('use_null', True)
-    var = configs.get('var', 10.)
+    var = configs.get('var', 160.)
     logger.info('n_src_vocab={}, n_trg_vocab={}'.format(self.Ks, self.Kt))
     self.alpha = configs.get('alpha', 0.)
 
@@ -31,7 +31,7 @@ class ContinuousMixtureAligner(object):
       self.src_vec_ids_train.append(src_vec_ids)
     
     self.src_model = RegionVGMM(np.concatenate(source_features_train, axis=0), self.Ks, var=var, vec_ids=self.src_vec_ids_train)
-    self.src_feats = source_features_train
+    self.src_feats = self.src_model.X
     self.trg_feats = target_features_train
     self.P_ts = 1./self.Ks * np.ones((self.Kt, self.Ks))
     self.trg2src_counts = np.zeros((self.Kt, self.Ks))
@@ -374,9 +374,9 @@ if __name__ == '__main__':
   else:
     src_feats_train, trg_feats_train, src_feats_test, trg_feats_test = load_flickr(path)
     Kt = 2001
-    Ks = 600
+    Ks = 300 # XXX
   aligner = ContinuousMixtureAligner(src_feats_train, trg_feats_train, configs={'n_trg_vocab':Kt, 'n_src_vocab':Ks})
-  aligner.trainEM(20, '{}/mixture'.format(args.exp_dir))
+  aligner.trainEM(15, '{}/mixture'.format(args.exp_dir))
   aligner.print_alignment('{}/alignment.json'.format(args.exp_dir))
   # aligner.retrieve(src_feats_train, trg_feats_train, '{}/retrieval'.format(args.exp_dir))
   aligner.retrieve(src_feats_test, trg_feats_test, '{}/retrieval'.format(args.exp_dir))
