@@ -135,8 +135,6 @@ def validate(audio_model, test_loader, args):
       #   continue
 
       audios, labels, nframes, nphones = audio_input
-      # XXX
-      # print(labels[1].cpu().numpy())
       audios = Variable(audios)
       if torch.cuda.is_available():
         audios = audios.cuda()

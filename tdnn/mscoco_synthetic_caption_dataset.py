@@ -1,6 +1,7 @@
 import torch
 import librosa
-import scipy.io as io
+# import scipy.io as io
+from scipy.io import wavfile
 from sphfile import SPHFile
 from torch.utils.data import Dataset, DataLoader
 import json
@@ -69,10 +70,10 @@ class MSCOCOSyntheticCaptionDataset(Dataset):
         start_ms, end_ms = phn[1], phn[2]
         audio_filename = capt_id + '.wav'
         try:
-          sr, y = io.wavfile.read(self.audio_root_path + audio_filename)
+          sr, y = wavfile.read(self.audio_root_path + audio_filename)
         except:
           audio_filename = '_'.join(capt_id.split('_')[:-1]) + '.wav'
-          sr, y = io.wavfile.read(self.audio_root_path + audio_filename)
+          sr, y = wavfile.read(self.audio_root_path + audio_filename)
         y = preemphasis(y, self.coeff) 
         start, end = int(start_ms * sr / 1000), int(end_ms * sr / 1000)
         if start >= end:

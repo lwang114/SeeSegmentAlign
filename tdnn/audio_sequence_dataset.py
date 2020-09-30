@@ -42,6 +42,7 @@ class AudioSequenceDataset(Dataset):
     self.max_nframes = 1000
 
     self.audio_root_path = audio_root_path
+    cur_audio_filename = ''
     with open(audio_sequence_file, 'r') as f:
       i = 0
       for line in f:
@@ -50,8 +51,14 @@ class AudioSequenceDataset(Dataset):
         #   break
         i += 1 
         audio_info = line.strip().split()        
-        self.phone_sequences.append(audio_info[1:])
-        self.audio_filenames.append(audio_info[0])
+        audio_filename = audio_info[0]
+        if audio_filename != cur_audio_filename:
+          self.audio_filenames.append(audio_filename)
+          self.phone_sequences.append(audio_info[1:])
+          cur_audio_filename = audio_filename
+        else:
+          self.phone_sequences[-1].extend(audio_info[1:])
+    print('Number of audio files={}, number of phone sequences={}'.format(len(self.audio_filenames), len(self.phone_sequences)))
 
     with open(phone2idx_file, 'r') as f:
       self.phone2idx = json.load(f)
@@ -65,12 +72,12 @@ class AudioSequenceDataset(Dataset):
     
     audio_filename = self.audio_filenames[idx]
     try:
-      sr, y = io.wavfile.read(self.audio_root_path + audio_filename)
+      sr, y = io.wavfile.read(self.audio_root_path + audio_filename + '.wav')
     except:
       if audio_filename.split('.')[-1] == 'wav':
         audio_filename_sph = '.'.join(audio_filename.split('.')[:-1]+['WAV'])
         sph = SPHFile(self.audio_root_path + audio_filename_sph)
-        sph.write_wav(self.audio_root_path + audio_filename)
+        sph.write_wav(self.audio_root_path + audio_filename_sph)
       sr, y = io.wavfile.read(self.audio_root_path + audio_filename)
 
     y = preemphasis(y, self.coeff) 
@@ -86,7 +93,7 @@ class AudioSequenceDataset(Dataset):
 
     phone_seq = self.phone_sequences[idx]
     nphones = min(len(phone_seq), self.max_nphones)
-    labels = [self.phone2idx[phone_seq[i]] if i < len(phone_seq) else self.ES for i in range(self.max_nphones)] 
+    labels = [self.phone2idx.get(phone_seq[i], 0) if i < len(phone_seq) else self.ES for i in range(self.max_nphones)] 
     # labels = [self.phone2idx[phone_seq[i]] for i in range(min(self.max_nphones, len(phone_seq)))]
     # TODO 
     # if self.compute_cmvn:

@@ -1,0 +1,7 @@
+{
+    "image_feat_file": "/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k//flickr30k_res34_rcnn.npz",
+    "root": "/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k/",
+    "test_image_ids_file": "/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k//flickr8k_test.txt",
+    "text_caption_file": "/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k//flickr30k_text_captions_filtered.txt",
+    "word_to_idx_file": "/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k//flickr30k_word_to_idx_filtered.json"
+}
