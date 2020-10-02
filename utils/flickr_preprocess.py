@@ -27,6 +27,7 @@ class Flickr_Preprocessor(object):
     self.stopwords = stopwords.words('english')
     self.ic = wordnet_ic.ic('ic-semcor.dat')
     self.concept_class_file = concept_class_file
+    self.phonetisaurus_root = '/ws/ifp-53_1/hasegawa/tools/espnet/tools/kaldi/tools/phonetisaurus-g2p/'
     '''
     with open(self.concept_class_file, 'r') as f:
       self.concept_names = f.read().strip().split('\n')
@@ -34,7 +35,7 @@ class Flickr_Preprocessor(object):
     
     with open('flickr_type2idx.json', 'w') as f:
       json.dump(self.concept2ids, f, indent=4, sort_keys=True)
-
+    
     self.word2concept = {}
     self.concept2word = {c:[] for c in self.concept_names}
     '''
@@ -42,6 +43,7 @@ class Flickr_Preprocessor(object):
   # TODO Process the phone segment file 
   def extract_info(self, out_file_prefix='flickr30k_info', word2concept_file=None, split_file=None, max_vocab_size=2000):
     pairs = []
+    '''
     if not word2concept_file:
       self.extract_word_to_concept_map()
     else:
@@ -58,7 +60,7 @@ class Flickr_Preprocessor(object):
       print(test_ids[:10])
     else:
       test_ids = []
-
+    '''
     f_ins = open(self.instance_file, 'r')
     cur_capt_id = ''
     i = -1
@@ -81,9 +83,10 @@ class Flickr_Preprocessor(object):
         word = self.lemmatizer.lemmatize(word.lower())
         if word in self.stopwords or word in STOP or word in PUNCT:
           continue
-        # print(word)
+        
         if not word in g2ps: 
-          g2ps[word] = os.popen('phonetisaurus-g2pfst --model=g2ps/models/english_4_2_2.fst --word=%s' % word).read().strip().split()[2:]
+          print(word)
+          g2ps[word] = os.popen('{}/phonetisaurus-g2pfst --model=/ws/ifp-53_1/hasegawa/tools/espnet/egs/discophone/ifp_lwang114/g2ps/models/english_4_2_2.fst --word={}'.format(self.phonetisaurus_root, word)).read().strip().split()[2:]
           word_freqs[word] = 1
         else:
           word_freqs[word] += 1
@@ -342,9 +345,18 @@ class Flickr_Preprocessor(object):
       with open(word_freq_file, 'r') as f:
         word_freqs = json.load(f) 
         top_words = sorted(word_freqs, key=lambda x:word_freqs[x], reverse=True)[:topk_vocab]
-    if g2p_file:
+    if os.path.isfile(g2p_file): # Check if a pronuciation dictionary exists; if not, create a pronunciation dictionary on the fly
       with open(g2p_file, 'r') as f:
         g2p = json.load(f)
+    else: # TODO
+      g2ps = {}
+      for word in top_words:
+        if not word in g2ps: 
+          print(word)
+          g2ps[word] = os.popen('{}/phonetisaurus-g2pfst --model=/ws/ifp-53_1/hasegawa/tools/espnet/egs/discophone/ifp_lwang114/g2ps/models/english_4_2_2.fst --word=%s'.format(self.phonetisaurus_root) % word).read().strip().split()[2:]
+      
+      with open(g2p_file, 'w') as f:
+        json.dump(g2ps, f, indent=4, sort_keys=True)
 
     # TODO Filter only the top 1000 words
     with open(out_file+'_words.txt', 'w') as fw,\
@@ -381,11 +393,7 @@ class Flickr_Preprocessor(object):
         fw.write(' '.join(word_caption)+'\n')
         fp.write(' '.join(phone_caption)+'\n')   
 
-  def filter_captions(self, caption_file, out_file='flickr30k_captions_filtered', split=False, topk_vocab=2000, word_freq_file='word_frequency.json', g2p_file=None): # TODO
-    if g2p_file:
-      with open(g2p_file, 'r') as f_g2p:
-        g2p = json.load(f)
-
+  def filter_captions(self, caption_file, out_file='flickr30k_captions_filtered', split=False, topk_vocab=2000, word_freq_file='word_frequency.json', g2p_file='word_pronunciation.json'): # TODO
     word_captions = []
     phone_captions = []
     word2freq = {}
@@ -408,6 +416,19 @@ class Flickr_Preprocessor(object):
     with open('{}_word_to_idx.json'.format(out_file), 'w') as f:
       json.dump({word:i for i, word in enumerate(top_words)}, f, indent=4, sort_keys=True)
 
+    if os.path.isfile(g2p_file):
+      with open(g2p_file, 'r') as f_g2p:
+        g2p = json.load(f_g2p)
+    else:
+      g2p = {}
+      for word in top_words:
+        if not word in g2p: 
+          print(word)
+          g2p[word] = os.popen('{}/phonetisaurus-g2pfst --model=/ws/ifp-53_1/hasegawa/tools/espnet/egs/discophone/ifp_lwang114/g2ps/models/english_4_2_2.fst --word=%s'.format(self.phonetisaurus_root) % word).read().strip().split()[2:]
+      
+      with open(g2p_file, 'w') as f:
+        json.dump(g2p, f, indent=4, sort_keys=True)
+
     with open(caption_file, 'r') as fc,\
          open(out_file+'_words.txt', 'w') as fw,\
          open(out_file+'_phones.txt', 'w') as fp:
@@ -424,7 +445,7 @@ class Flickr_Preprocessor(object):
           if not word in top_words: continue  
           word_caption.append(word)   
           if g2p_file:          
-            phone_caption += [phn.encode('utf-8') for phn in g2p[word]]
+            phone_caption += [phn for phn in g2p[word]] # XXX [phn.encode('utf-8') for phn in g2p[word]]
         
         if g2p_file:
           phone_captions.append(' '.join(phone_caption)) 
@@ -436,6 +457,20 @@ class Flickr_Preprocessor(object):
       if g2p_file:
         fp.write('\n'.join(phone_captions))   
       
+  def include_whole_image(self, imgid2bbox_file, root_path, out_file):
+    img_id = ''
+    with open(imgid2bbox_file, 'r') as f_in,\
+         open(out_file, 'w') as f_out:
+        for line in f_in:
+          cur_img_id = line.split()[0]
+          print(cur_img_id)
+          if cur_img_id != img_id:
+            img = np.array(Image.open('{}/{}.jpg'.format(root_path, cur_img_id.split('.')[0])))
+            f_out.write('{} scene {} {} {} {}\n'.format(cur_img_id, 0, 0, img.shape[1], img.shape[0]))
+            f_out.write(line)
+            img_id = cur_img_id
+          else:
+            f_out.write(line)
 
   def create_concept_captions(self, data_file, word2concept_file, word_freq_file=None, out_file='flickr30k_concepts'):
       with open(data_file, 'r') as f:
@@ -559,6 +594,40 @@ class Flickr_Preprocessor(object):
     with open(out_file, 'w') as f:
       json.dump(new_data_info, f, indent=4, sort_keys=True)
 
+  def load_rcnn_feats(self, bbox_file, feat_root, out_file, max_n_boxes=15):
+    # Load the image ids
+    img_ids = []
+    img_id = ''
+    with open(bbox_file, 'r') as f:
+      for line in f:
+        cur_img_id = line.split()[0]
+        if cur_img_id != img_id:
+          img_ids.append(cur_img_id)
+          img_id = cur_img_id
+
+    feat_dict = {}
+    with open('{}_bboxes.txt'.format(out_file), 'w') as f_out_bbox:
+      for ex, img_id in enumerate(img_ids):
+        # if ex > 30:
+        #   break
+        arr_key = '{}_{}'.format(img_id, ex)
+        print(arr_key)
+        feat_file = '{}/{}.npy'.format(feat_root, img_id.split('.')[0])
+        print(feat_file)
+        feat_npy = np.load(feat_file).reshape(-1)[0]        
+        feat_dict[arr_key] = feat_npy['features'][:max_n_boxes]
+        print(feat_dict[arr_key].shape)
+        boxes = feat_npy['boxes']
+        for i_b in range(min(len(boxes), max_n_boxes)):
+          box = boxes[i_b]
+          x, y, w, h = box[0], box[1], box[2], box[3]
+          scores = feat_npy['scores'] 
+          classes = feat_npy['class']
+          best_class = classes[np.argmax(scores)]
+          f_out_bbox.write('{} {} {} {} {} {}\n'.format(img_id, best_class, x, y, w, h))
+
+    np.savez('{}.npz'.format(out_file), **feat_dict)
+      
 def compute_word_similarity(word_senses1, word_senses2, sim_type='wup+res', pos='n', ic=None):
   scores = []
   n_senses = 0
@@ -596,6 +665,7 @@ if __name__ == '__main__':
   root = '/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k/'
   preproc = Flickr_Preprocessor('{}/flickr30k_phrases_bboxes.txt'.format(root), '{}/flickr30k_phrase_types.txt'.format(root), None, concept_class_file='{}/flickr_classnames_original.txt'.format(root))
   data_file = '{}/flickr30k_info.json'.format(root)
+  bbox_file = '{}/flickr30k_phrases_bboxes.txt'.format(root)
   caption_file = '{}/flickr30k_text_captions.txt'.format(root)
 
   if 0 in tasks:
@@ -605,7 +675,7 @@ if __name__ == '__main__':
   if 2 in tasks:
     preproc.train_test_split(split_file='../data/flickr30k/flickr8k_test.txt')
   if 3 in tasks:
-    preproc.create_captions(data_file, split=True, word_freq_file='{}/flickr30k_word_frequencies.json'.format(root), g2p_file='../data/flickr30k/flickr30k_word_pronunciations.json')
+    preproc.create_captions(data_file, split=False, word_freq_file='{}/flickr30k_word_frequencies.json'.format(root), g2p_file='{}/flickr30k_word_pronunciations.json'.format(root))
   if 4 in tasks:
     preproc.create_gold_alignment(data_file)
   if 5 in tasks:
@@ -616,3 +686,25 @@ if __name__ == '__main__':
     preproc.extract_word_to_image_map()
   if 8 in tasks:
     preproc.filter_captions(caption_file, word_freq_file='{}/flickr30k_word_frequencies.json'.format(root))
+  if 9 in tasks:
+    preproc.include_whole_image(bbox_file, '{}/Flicker8k_Dataset/'.format(root), out_file='{}/flickr30k_phrases_bboxes_include_whole_image.txt'.format(root))
+  if 10 in tasks:
+    preproc.load_rcnn_feats(bbox_file, '{}/rcnn_feats/bottom_up_features_36_info/'.format(root), out_file='{}/flickr30k_rcnn'.format(root))
+  if 11 in tasks:
+    data_file = '/ws/ifp-53_2/hasegawa/lwang114/data/flickr30k/flickr30k_res34_rcnn.npz'
+    img_ids = []
+    with open(bbox_file, 'r') as f:
+      img_id = ''
+      for line in f:
+        cur_img_id = line.split()[0]
+        if cur_img_id != img_id:
+          img_ids.append('{}_{}'.format(cur_img_id, len(img_ids)))
+          img_id = cur_img_id
+          
+    old_data_dict = np.load(data_file)
+    new_data_dict = {}
+    for i, img_id in enumerate(img_ids):
+      print('Image id {}'.format(img_id))
+      new_data_dict[img_id] = old_data_dict['arr_{}'.format(i)]
+
+    np.savez('{}/new_flickr30k_res34_rcnn.npz'.format(root), **new_data_dict)
