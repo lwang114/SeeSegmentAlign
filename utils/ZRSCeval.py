@@ -1,11 +1,11 @@
 import pkg_resources 
-from WDE.readers.gold_reader import *
-from WDE.readers.disc_reader import *
-from WDE.measures.grouping import * 
-from WDE.measures.coverage import *
-from WDE.measures.boundary import *
-from WDE.measures.ned import *
-from WDE.measures.token_type import *
+from tde.readers.gold_reader import *
+from tde.readers.disc_reader import *
+from tde.measures.grouping import * 
+from tde.measures.coverage import *
+from tde.measures.boundary import *
+from tde.measures.ned import *
+from tde.measures.token_type import *
 from postprocess import *
 import argparse
 import os
@@ -24,6 +24,7 @@ args = parser.parse_args()
 
 if args.level == 'word':
   tasks = [0, 1]
+  # tasks = [1]
 elif args.level == 'phone':
   tasks = [0, 2]
 
@@ -31,7 +32,7 @@ with open(args.exp_dir+'model_names.txt', 'r') as f:
   model_names = f.read().strip().split()
 
 if args.dataset == 'mscoco2k' or args.dataset == 'mscoco20k':
-  datapath = '../data/'
+  datapath = '/ws/ifp-53_2/hasegawa/lwang114/data/mscoco/mscoco2k/feats/'
   phone_corpus = datapath + '%s_phone_captions.txt' % args.dataset
   concept_corpus = datapath + '%s_image_captions.txt' % args.dataset
   concept2id_file = datapath + 'concept2idx.json'
@@ -54,7 +55,8 @@ elif args.dataset == 'flickr':
 with open(args.exp_dir+'model_names.txt', 'r') as f:
   model_names = f.read().strip().split()
 
-tde_dir = '/home/lwang114/spring2019/MultimodalWordDiscovery/utils/tdev2/'
+tde_dir = 'tdev2/tde/share/'
+tde_pkg_dir = '/tde/share/'
 #--------------------------#
 # Extract Discovered Words #
 #--------------------------#
@@ -66,25 +68,25 @@ if 0 in tasks:
 
       split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
       if 2 in tasks:
-        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file, split_file=split_files[0])
+        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%s%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%s%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file, split_file=split_files[0])
       else:
-        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
+        alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%s%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%s%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
 
         for i, (model_name, pred_alignment_file, split_file) in enumerate(zip(model_names, pred_alignment_files, split_files)):
           print(model_name)
-          discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s_split_%d.class' % (args.dataset, model_name, k)
+          discovered_word_file = '%sdiscovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
           alignment_to_word_classes(pred_alignment_file, phone_corpus, split_file=split_file, word_class_file=discovered_word_file, include_null=True)
   else:
     if 2 in tasks or args.convert_to_frame:
-      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file)
-      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file) 
+      # alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%s%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%s%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file)
+      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%s%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%s%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file, landmark_file=landmark_file) 
     else:
-      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file) 
+      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%s%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%s%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file) 
 
     pred_alignment_files = ['%s%s_alignment.json' % (args.exp_dir, model_name) for model_name in model_names]
   
     for i, (model_name, pred_alignment_file) in enumerate(zip(model_names, pred_alignment_files)):
-      discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s.class' % (args.dataset, model_name)
+      discovered_word_file = '%sdiscovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name)
 
       if args.result_type == 'alignment':
         if args.convert_to_frame:
@@ -99,7 +101,7 @@ if 0 in tasks:
 #---------------------------#
 if 1 in tasks:
   if args.nfolds > 1: # XXX
-    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
+    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir.split('/')[0])
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
     
@@ -113,13 +115,13 @@ if 1 in tasks:
       type_f1s = np.zeros((args.nfolds,))
 
       for k in range(args.nfolds): # XXX
-        disc_clsfile = '%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
+        disc_clsfile = '%sdiscovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
         wrd_path = pkg_resources.resource_filename(
-                  pkg_resources.Requirement.parse('WDE'),
-                              'WDE/share/%s_split_%d_word_units.wrd' % (args.dataset, k))
+                  pkg_resources.Requirement.parse('tde'),
+                              '%s%s_split_%d_word_units.wrd' % (tde_pkg_dir, args.dataset, k))
         phn_path = pkg_resources.resource_filename(
-                  pkg_resources.Requirement.parse('WDE'),
-                              'WDE/share/%s_split_%d_phone_units.phn' % (args.dataset, k))
+                  pkg_resources.Requirement.parse('tde'),
+                              '%s%s_split_%d_phone_units.phn' % (tde_pkg_dir, args.dataset, k))
         gold = Gold(wrd_path=wrd_path, 
                     phn_path=phn_path) 
         discovered = Disc(disc_clsfile, gold) 
@@ -163,20 +165,20 @@ if 1 in tasks:
       print('Average Coverage: ', np.mean(coverages), np.std(coverages))
       print('Average NED: ', np.mean(neds), np.std(neds))
   else:
-    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
+    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir.split('/')[0])
     wrd_path = pkg_resources.resource_filename(
-                pkg_resources.Requirement.parse('WDE'),
-                            'WDE/share/%s_word_units.wrd' % args.dataset)
+                pkg_resources.Requirement.parse('tde'),
+                            '%s%s_word_units.wrd' % (tde_pkg_dir, args.dataset))
     phn_path = pkg_resources.resource_filename(
-                pkg_resources.Requirement.parse('WDE'),
-                            'WDE/share/%s_phone_units.phn' % args.dataset)
+                pkg_resources.Requirement.parse('tde'),
+                            '%s%s_phone_units.phn' % (tde_pkg_dir, args.dataset))
 
     gold = Gold(wrd_path=wrd_path, 
                   phn_path=phn_path) 
     
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
-    disc_clsfiles = ['%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
+    disc_clsfiles = ['%sdiscovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
     print(disc_clsfiles)
     for model_name, disc_clsfile in zip(model_names, disc_clsfiles):
       discovered = Disc(disc_clsfile, gold) 
@@ -224,17 +226,17 @@ if 2 in tasks:
     for k in range(args.nfolds):
       pred_alignment_files = ['%s%s_split_%d_alignment.json' % (args.exp_dir, model_name, k) for model_name in model_names]
       split_files = ['%s%s_split_%d.txt' % (args.exp_dir, model_name, k) for model_name in model_names]
-      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%sWDE/share/%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%sWDE/share/%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
+      alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, word_unit_file='%s%s_split_%d_word_units.wrd' % (tde_dir, args.dataset, k), phone_unit_file='%s%s_split_%d_phone_units.phn' % (tde_dir, args.dataset, k), include_null=True, concept2id_file=concept2id_file, split_file=split_files[0])
 
       for i, (model_name, pred_alignment_file, split_file) in enumerate(zip(model_names, pred_alignment_files, split_files)):
         print(model_name)
-        discovered_word_file = tde_dir + 'WDE/share/discovered_words_%s_%s_split_%d.class' % (args.dataset, model_name, k)
+        discovered_word_file = '%sdiscovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
         alignment_to_word_classes(pred_alignment_file, phone_corpus, split_file=split_file, word_class_file=discovered_word_file, include_null=True)
   else:
-    alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, landmark_file=landmark_file, word_unit_file='%sWDE/share/%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%sWDE/share/%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file)
+    alignment_to_word_units(gold_alignment_file, phone_corpus, concept_corpus, landmark_file=landmark_file, word_unit_file='%s%s_word_units.wrd' % (tde_dir, args.dataset), phone_unit_file='%s%s_phone_units.phn' % (tde_dir, args.dataset), include_null=True, concept2id_file=concept2id_file)
 
   if args.nfolds > 1:
-    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
+    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir.split('/')[0])
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
     
@@ -248,10 +250,10 @@ if 2 in tasks:
       type_f1s = np.zeros((args.nfolds,))
 
       for k in range(args.nfolds): # XXX
-        disc_clsfile = '%sWDE/share/discovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
+        disc_clsfile = '%sdiscovered_words_%s_%s_split_%d.class' % (tde_dir, args.dataset, model_name, k)
         phn_path = pkg_resources.resource_filename(
                   pkg_resources.Requirement.parse('WDE'),
-                              'WDE/share/%s_split_%d_phone_units.phn' % (args.dataset, k))
+                              '%s%s_split_%d_phone_units.phn' % (tde_pkg_dir, args.dataset, k))
         gold = Gold(wrd_path=phn_path, 
                     phn_path=phn_path) 
         discovered = Disc(disc_clsfile, gold) 
@@ -295,17 +297,17 @@ if 2 in tasks:
       print('Average Coverage: ', np.mean(coverages), np.std(coverages))
       print('Average NED: ', np.mean(neds), np.std(neds))
   else:
-    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir)
+    os.system('cd %s && python setup.py build && python setup.py install' % tde_dir.split('/')[0])
     phn_path = pkg_resources.resource_filename(
-                pkg_resources.Requirement.parse('WDE'),
-                            'WDE/share/%s_phone_units.phn' % args.dataset)
+                pkg_resources.Requirement.parse('tde'),
+                            '%s%s_phone_units.phn' % (tde_pkg_dir, args.dataset))
 
     gold = Gold(wrd_path=phn_path, 
                   phn_path=phn_path) 
     
     with open(args.exp_dir+'model_names.txt', 'r') as f:
       model_names = f.read().strip().split()
-    disc_clsfiles = ['%sWDE/share/discovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
+    disc_clsfiles = ['%sdiscovered_words_%s_%s.class' % (tde_dir, args.dataset, model_name) for model_name in model_names]
     print(disc_clsfiles)
     for model_name, disc_clsfile in zip(model_names, disc_clsfiles):
       discovered = Disc(disc_clsfile, gold) 
