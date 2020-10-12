@@ -22,12 +22,12 @@ class FlickrRegionDataset(Dataset):
       for line in f:
         parts = line.strip().split()
         k = '_'.join(parts[0].split('_')[:-1])
-        x, y, w, h = parts[-4:]
+        xmin, ymin, xmax, ymax = parts[-4:]
         phrase = parts[1:-4]
         self.class_labels.append('_'.join(phrase))
         # XXX self.image_keys.append('_'.join(k.split('_')[:-1]))
         self.image_keys.append(k)
-        self.bboxes.append([x, y, w, h])
+        self.bboxes.append([xmin, ymin, xmax, ymax])
 
     with open(class2idx_file, 'r') as f:
       self.class2idx = json.load(f)
@@ -39,8 +39,8 @@ class FlickrRegionDataset(Dataset):
     if torch.is_tensor(idx):
       idx = idx.tolist()
 
-    x, y, w, h = self.bboxes[idx] 
-    x, y, w, h = int(x), int(y), np.maximum(int(w), 1), np.maximum(int(h), 1)
+    xmin, ymin, xmax, ymax = self.bboxes[idx] 
+    xmin, ymin, xmax, ymax = int(float(xmin)), int(float(ymin)), np.maximum(int(float(xmax)), 1), np.maximum(int(float(ymax)), 1)
     image = Image.open(self.image_root_path + self.image_keys[idx]).convert('RGB')
     # print(np.asarray(image).mean())
     if len(np.array(image).shape) == 2:
@@ -48,11 +48,10 @@ class FlickrRegionDataset(Dataset):
       image = np.tile(np.array(image)[:, :, np.newaxis], (1, 1, 3))
       image = Image.fromarray(image)
     
-    region = image.crop(box=(x, y, x + w, y + h))
+    region = image.crop(box=(xmin, ymin, xmax, ymax))
     
     if self.transform:
       region = self.transform(region)
 
-    # print(x, y, w, h, region.mean())
     label = self.class2idx.get(self.class_labels[idx], 0)
     return region, label
